@@ -1,0 +1,7 @@
+bloom-boba NEWS
+
+Version 0.1.0 (unreleased)
+--------------------------
+* Initial release
+* Terminal UI library using the Elm Architecture
+* Components: textinput, viewport, textview

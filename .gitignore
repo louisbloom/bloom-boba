@@ -1,0 +1,48 @@
+# Autotools
+/aclocal.m4
+/autom4te.cache/
+/build-aux/compile
+/build-aux/depcomp
+/build-aux/install-sh
+/build-aux/missing
+/build-aux/ar-lib
+/config.h*
+/config.log
+/config.status
+/configure
+/stamp-h1
+Makefile
+Makefile.in
+/m4/libtool.m4
+/m4/lt*.m4
+
+# Build artifacts
+*.o
+*.a
+*.la
+.libs/
+.deps/
+/build/
+
+# Test outputs
+*.log
+*.trs
+/test-suite.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Misc
+*.tmp
+*.bak
+.env
+.cecli*
+.aider*
+.cache/
+compile_commands.json
+crush.json
+.crushignore
