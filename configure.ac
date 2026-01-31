@@ -26,6 +26,7 @@ AC_CONFIG_FILES([
     Makefile
     src/Makefile
     include/Makefile
+    tests/Makefile
     bloom-boba.pc
 ])
 

@@ -6,6 +6,7 @@
 /build-aux/install-sh
 /build-aux/missing
 /build-aux/ar-lib
+/build-aux/test-driver
 /config.h*
 /config.log
 /config.status

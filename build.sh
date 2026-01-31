@@ -206,6 +206,10 @@ main() {
 			INSTALL_PREFIX="${1#*=}"
 			shift
 			;;
+		--test)
+			RUN_TESTS=true
+			shift
+			;;
 		--format)
 			format_sources
 			exit 0
@@ -216,6 +220,7 @@ main() {
 			echo "  --install         Build and install the library"
 			echo "  --bear            Generate compile_commands.json using bear"
 			echo "  --no-debug        Disable debug build"
+			echo "  --test            Build and run tests (make check)"
 			echo "  --format          Format source files with clang-format, shfmt, and prettier"
 			echo "  --prefix=PATH     Set installation prefix (default: $HOME/.local)"
 			echo "  --help            Show this help message"
@@ -278,6 +283,19 @@ main() {
 				exit 1
 			fi
 		fi
+	fi
+
+	# Run tests if requested
+	if [ "${RUN_TESTS:-false}" = true ]; then
+		log_info "Running tests..."
+		cd "$BUILD_DIR"
+		if ! make check; then
+			log_error "Tests failed"
+			cd ..
+			exit 1
+		fi
+		cd ..
+		log_info "All tests passed!"
 	fi
 
 	log_info "Build process completed successfully!"

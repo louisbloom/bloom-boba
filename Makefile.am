@@ -1,6 +1,6 @@
 # Makefile.am - Top-level automake file for bloom-boba
 
-SUBDIRS = src include
+SUBDIRS = src include tests
 
 ACLOCAL_AMFLAGS = -I m4
 
