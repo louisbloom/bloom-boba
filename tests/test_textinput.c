@@ -399,6 +399,29 @@ static void test_prompt(void) {
     tui_textinput_free(input);
 }
 
+static void test_get_height_no_dividers(void) {
+    TuiTextInput *input = tui_textinput_create(NULL);
+    assert(tui_textinput_get_height(input) == 1);
+    tui_textinput_free(input);
+}
+
+static void test_get_height_with_dividers(void) {
+    TuiTextInput *input = tui_textinput_create(NULL);
+    tui_textinput_set_show_dividers(input, 1);
+    assert(tui_textinput_get_height(input) == 3);
+    tui_textinput_free(input);
+}
+
+static void test_get_height_dynamic(void) {
+    TuiTextInput *input = tui_textinput_create(NULL);
+    assert(tui_textinput_get_height(input) == 1);
+    tui_textinput_set_show_dividers(input, 1);
+    assert(tui_textinput_get_height(input) == 3);
+    tui_textinput_set_show_dividers(input, 0);
+    assert(tui_textinput_get_height(input) == 1);
+    tui_textinput_free(input);
+}
+
 /* ---------- main ---------- */
 
 int main(void) {
@@ -427,6 +450,9 @@ int main(void) {
     RUN_TEST(test_set_cursor);
     RUN_TEST(test_line_count);
     RUN_TEST(test_prompt);
+    RUN_TEST(test_get_height_no_dividers);
+    RUN_TEST(test_get_height_with_dividers);
+    RUN_TEST(test_get_height_dynamic);
 
     printf("\n%d/%d tests passed.\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

@@ -15,4 +15,5 @@ bloom_boba_componentsdir = $(includedir)/bloom-boba/components
 bloom_boba_components_HEADERS = \
     bloom-boba/components/textinput.h \
     bloom-boba/components/textview.h \
-    bloom-boba/components/viewport.h
+    bloom-boba/components/viewport.h \
+    bloom-boba/components/statusbar.h

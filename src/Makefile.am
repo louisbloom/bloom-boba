@@ -11,7 +11,8 @@ libbloom_boba_a_SOURCES = \
     ansi_sequences.c \
     components/textinput.c \
     components/textview.c \
-    components/viewport.c
+    components/viewport.c \
+    components/statusbar.c
 
 libbloom_boba_a_CPPFLAGS = \
     -I$(top_srcdir)/include

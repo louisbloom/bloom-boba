@@ -173,6 +173,11 @@ void tui_textinput_set_terminal_width(TuiTextInput *input, int width);
  */
 void tui_textinput_set_terminal_row(TuiTextInput *input, int row);
 
+/* Get render height in rows (includes dividers if enabled)
+ * Returns 1 for the input line itself, +2 if show_dividers is enabled.
+ */
+int tui_textinput_get_height(const TuiTextInput *input);
+
 /* Get component interface for text input */
 const TuiComponent *tui_textinput_component(void);
 

@@ -1429,6 +1429,17 @@ void tui_textinput_set_terminal_row(TuiTextInput *input, int row)
         input->terminal_row = row;
 }
 
+/* Get render height in rows */
+int tui_textinput_get_height(const TuiTextInput *input)
+{
+    if (!input)
+        return 1;
+    int h = 1; /* Input line itself */
+    if (input->show_dividers)
+        h += 2; /* Top + bottom dividers */
+    return h;
+}
+
 /* Component interface wrappers */
 static TuiInitResult textinput_init(void *config)
 {
