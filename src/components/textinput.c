@@ -1044,13 +1044,18 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
 }
 
 /* Render a horizontal divider line in place (no newline) */
-static void render_divider_inline(DynamicBuffer *out, int width)
+static void render_divider_inline(DynamicBuffer *out, int width,
+                                  const char *color)
 {
     /* Use Unicode box-drawing character ─ (U+2500) */
     const char *line_char = "\xe2\x94\x80"; /* UTF-8 encoding of ─ */
-    /* Reset any inherited color state before applying dim */
+    /* Reset any inherited color state before applying color */
     dynamic_buffer_append_str(out, SGR_RESET);
-    dynamic_buffer_append_str(out, SGR_DIM); /* Dim color for divider */
+    if (color && color[0] != '\0') {
+        dynamic_buffer_append_str(out, color);
+    } else {
+        dynamic_buffer_append_str(out, SGR_DIM);
+    }
     for (int i = 0; i < width; i++) {
         dynamic_buffer_append_str(out, line_char);
     }
@@ -1093,7 +1098,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
                     snprintf(pos_buf, sizeof(pos_buf), CSI "%d;1H", top_row);
                     dynamic_buffer_append_str(out, pos_buf);
                     dynamic_buffer_append_str(out, EL_TO_END);
-                    render_divider_inline(out, term_width);
+                    render_divider_inline(out, term_width, input->divider_color);
                 }
             }
 
@@ -1127,7 +1132,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
                 snprintf(pos_buf, sizeof(pos_buf), CSI "%d;1H", bottom_row);
                 dynamic_buffer_append_str(out, pos_buf);
                 dynamic_buffer_append_str(out, EL_TO_END);
-                render_divider_inline(out, term_width);
+                render_divider_inline(out, term_width, input->divider_color);
             }
 
             /* Position cursor on input line */
@@ -1412,6 +1417,19 @@ void tui_textinput_set_show_dividers(TuiTextInput *input, int show)
 {
     if (input) {
         input->show_dividers = show;
+    }
+}
+
+/* Set custom ANSI color for dividers */
+void tui_textinput_set_divider_color(TuiTextInput *input, const char *color)
+{
+    if (!input)
+        return;
+    if (color && color[0] != '\0') {
+        snprintf(input->divider_color, sizeof(input->divider_color), "%s",
+                 color);
+    } else {
+        input->divider_color[0] = '\0';
     }
 }
 
