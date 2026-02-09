@@ -155,6 +155,25 @@ static TuiMsg parse_csi_sequence(const unsigned char *seq, int len)
         return tui_msg_key(TUI_KEY_F3, 0, mods);
     case 'S':
         return tui_msg_key(TUI_KEY_F4, 0, mods);
+    case 'u':
+        /* CSI u - kitty keyboard protocol: ESC[keycode;modifiers u */
+        if (param1 == 13) {
+            return tui_msg_key(TUI_KEY_ENTER, 0, mods);
+        }
+        if (param1 == 9) {
+            return tui_msg_key(TUI_KEY_TAB, 0, mods);
+        }
+        if (param1 == 27) {
+            return tui_msg_key(TUI_KEY_ESCAPE, 0, mods);
+        }
+        if (param1 == 127) {
+            return tui_msg_key(TUI_KEY_BACKSPACE, 0, mods);
+        }
+        /* Regular codepoint with modifiers */
+        if (param1 >= 0x20) {
+            return tui_msg_key(TUI_KEY_NONE, (uint32_t)param1, mods);
+        }
+        break;
     }
 
     return msg;
@@ -281,9 +300,6 @@ int tui_input_parser_feed(TuiInputParser *parser, unsigned char byte,
             /* Control character */
             switch (byte) {
             case 0x0D: /* CR */
-                *msg = tui_msg_key(TUI_KEY_ENTER, 0, TUI_MOD_NONE);
-                return 1;
-            case 0x0A: /* LF */
                 *msg = tui_msg_key(TUI_KEY_ENTER, 0, TUI_MOD_NONE);
                 return 1;
             case 0x09: /* Tab */

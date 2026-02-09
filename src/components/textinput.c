@@ -876,11 +876,7 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         break;
 
     case TUI_KEY_TAB:
-        if (!input->multiline) {
-            handle_tab_completion(input);
-        } else {
-            insert_codepoint(input, '\t');
-        }
+        handle_tab_completion(input);
         break;
 
     case TUI_KEY_HOME:
@@ -900,10 +896,11 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         break;
 
     case TUI_KEY_ENTER:
-        if (input->multiline) {
+        if (input->multiline && (key.mods & TUI_MOD_SHIFT)) {
+            /* Shift+Enter in multiline: insert newline */
             insert_codepoint(input, '\n');
         } else {
-            /* Single-line: submit the line */
+            /* Submit the line (both single-line and multiline Enter) */
             char *line = strdup(input->text);
             tui_textinput_clear(input);
             input->history_pos = -1; /* Reset history navigation */
@@ -945,6 +942,21 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
                 } else if (key.rune == 'h' || key.rune == 'H') {
                     /* Ctrl+H: Delete previous character (backspace) */
                     delete_before(input);
+                } else if (key.rune == 'j' || key.rune == 'J') {
+                    /* Ctrl+J: Insert newline in multiline, submit in single-line */
+                    if (input->multiline) {
+                        insert_codepoint(input, '\n');
+                    } else {
+                        char *line = strdup(input->text);
+                        tui_textinput_clear(input);
+                        input->history_pos = -1;
+                        if (input->saved_input) {
+                            free(input->saved_input);
+                            input->saved_input = NULL;
+                        }
+                        free(snap_text);
+                        return tui_update_result(tui_cmd_line_submit(line));
+                    }
                 } else if (key.rune == 'k' || key.rune == 'K') {
                     /* Ctrl+K: Kill to end of line */
                     size_t end = input->cursor_byte;
@@ -1187,8 +1199,75 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
                 }
             }
         }
+    } else if (input->terminal_row > 0) {
+        /* Multi-line mode with absolute positioning */
+        int line_count = tui_textinput_line_count(input);
+        int content_start_row = input->terminal_row;
+
+        if (input->show_dividers) {
+            /* Top divider */
+            int top_row = content_start_row - 1;
+            if (top_row >= 1) {
+                snprintf(pos_buf, sizeof(pos_buf), CSI "%d;1H", top_row);
+                dynamic_buffer_append_str(out, pos_buf);
+                dynamic_buffer_append_str(out, EL_TO_END);
+                render_divider_inline(out, term_width, input->divider_color);
+            }
+        }
+
+        /* Render each line with absolute positioning */
+        int current_line = 0;
+        size_t line_start = 0;
+        for (size_t i = 0; i <= input->text_len; i++) {
+            if (i == input->text_len || input->text[i] == '\n') {
+                int row = content_start_row + current_line;
+                snprintf(pos_buf, sizeof(pos_buf), CSI "%d;1H", row);
+                dynamic_buffer_append_str(out, pos_buf);
+                dynamic_buffer_append_str(out, EL_TO_END);
+
+                /* Prompt or indentation */
+                if (current_line == 0 && input->show_prompt && input->prompt &&
+                    input->prompt_len > 0) {
+                    dynamic_buffer_append_str(out, input->prompt);
+                } else if (current_line > 0 && input->show_prompt && input->prompt &&
+                           input->prompt_len > 0) {
+                    for (int j = 0; j < input->prompt_len; j++) {
+                        dynamic_buffer_append(out, " ", 1);
+                    }
+                }
+
+                /* Line content */
+                if (i > line_start) {
+                    dynamic_buffer_append(out, input->text + line_start,
+                                          i - line_start);
+                }
+
+                current_line++;
+                line_start = i + 1;
+            }
+        }
+
+        if (input->show_dividers) {
+            /* Bottom divider */
+            int bottom_row = content_start_row + line_count;
+            snprintf(pos_buf, sizeof(pos_buf), CSI "%d;1H", bottom_row);
+            dynamic_buffer_append_str(out, pos_buf);
+            dynamic_buffer_append_str(out, EL_TO_END);
+            render_divider_inline(out, term_width, input->divider_color);
+        }
+
+        /* Position cursor */
+        if (input->focused) {
+            int prompt_width =
+                (input->show_prompt && input->prompt) ? input->prompt_len : 0;
+            int cursor_col = (int)input->cursor_col + prompt_width + 1; /* 1-indexed */
+            int cursor_row = content_start_row + (int)input->cursor_row;
+            snprintf(pos_buf, sizeof(pos_buf), CSI "%d;%dH", cursor_row,
+                     cursor_col);
+            dynamic_buffer_append_str(out, pos_buf);
+        }
     } else {
-        /* Multi-line mode: simpler rendering (used for text areas) */
+        /* Multi-line mode: relative positioning (legacy) */
         /* Output prompt if set and shown */
         if (input->show_prompt && input->prompt && input->prompt_len > 0) {
             dynamic_buffer_append_str(out, input->prompt);
@@ -1452,7 +1531,7 @@ int tui_textinput_get_height(const TuiTextInput *input)
 {
     if (!input)
         return 1;
-    int h = 1; /* Input line itself */
+    int h = input->multiline ? tui_textinput_line_count(input) : 1;
     if (input->show_dividers)
         h += 2; /* Top + bottom dividers */
     return h;

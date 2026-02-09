@@ -373,8 +373,8 @@ static void test_line_count(void) {
     send_string(input, "line1");
     assert(tui_textinput_line_count(input) == 1);
 
-    /* Enter in multiline mode inserts newline */
-    send_key(input, TUI_KEY_ENTER);
+    /* Ctrl+J in multiline mode inserts newline (Enter submits) */
+    tui_textinput_update(input, tui_msg_key(TUI_KEY_NONE, 'j', TUI_MOD_CTRL));
     send_string(input, "line2");
     assert(tui_textinput_line_count(input) == 2);
 
