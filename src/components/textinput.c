@@ -858,21 +858,25 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         break;
 
     case TUI_KEY_UP:
-        if (input->multiline) {
+        if (input->multiline && input->cursor_row > 0) {
             cursor_up(input);
         } else {
-            /* Single-line: navigate history */
             history_prev(input);
         }
         break;
 
     case TUI_KEY_DOWN:
         if (input->multiline) {
-            cursor_down(input);
-        } else {
-            /* Single-line: navigate history */
-            history_next(input);
+            /* Check if there's a next line */
+            size_t pos = input->cursor_byte;
+            while (pos < input->text_len && input->text[pos] != '\n')
+                pos++;
+            if (pos < input->text_len) {
+                cursor_down(input);
+                break;
+            }
         }
+        history_next(input);
         break;
 
     case TUI_KEY_TAB:
@@ -973,15 +977,24 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
                     }
                     input->last_was_kill = 1;
                 } else if (key.rune == 'n' || key.rune == 'N') {
-                    /* Ctrl+N: Next history entry */
-                    if (!input->multiline) {
-                        history_next(input);
+                    /* Ctrl+N: Next history entry (or cursor down if mid-text) */
+                    if (input->multiline) {
+                        size_t pos = input->cursor_byte;
+                        while (pos < input->text_len && input->text[pos] != '\n')
+                            pos++;
+                        if (pos < input->text_len) {
+                            cursor_down(input);
+                            break;
+                        }
                     }
+                    history_next(input);
                 } else if (key.rune == 'p' || key.rune == 'P') {
-                    /* Ctrl+P: Previous history entry */
-                    if (!input->multiline) {
-                        history_prev(input);
+                    /* Ctrl+P: Previous history entry (or cursor up if mid-text) */
+                    if (input->multiline && input->cursor_row > 0) {
+                        cursor_up(input);
+                        break;
                     }
+                    history_prev(input);
                 } else if (key.rune == 't' || key.rune == 'T') {
                     /* Ctrl+T: Transpose characters before cursor */
                     transpose_chars(input);
