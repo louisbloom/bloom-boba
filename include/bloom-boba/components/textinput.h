@@ -16,13 +16,6 @@
 #include "../dynamic_buffer.h"
 #include "../msg.h"
 
-/* Completion callback function type
- * Returns NULL-terminated array of completions (caller must free each string
- * and the array)
- */
-typedef char **(*TuiCompletionCallback)(const char *buffer, int cursor_pos,
-                                        void *userdata);
-
 /* Text input model */
 typedef struct TuiTextInput {
   TuiModel base; /* Base model for component interface */
@@ -60,13 +53,7 @@ typedef struct TuiTextInput {
   char *saved_input;   /* Saved current input when navigating history */
 
   /* Tab completion */
-  TuiCompletionCallback completer; /* Completion callback */
-  void *completer_data;            /* User data for completion callback */
-  char **completions;              /* Current completion list (NULL-terminated) */
-  int completion_count;            /* Number of completions */
-  int completion_index;            /* Current cycling index */
-  int completion_word_start;       /* Byte offset where completed word starts */
-  int completion_word_len;         /* Byte length of current completed word */
+  char *word_delimiters;           /* Characters treated as word boundaries for completion */
 
   /* Kill/yank buffer */
   char *kill_buf;          /* Killed text (malloc'd, NULL initially) */
@@ -152,9 +139,15 @@ void tui_textinput_set_history_size(TuiTextInput *input, int size);
 /* Add a line to history */
 void tui_textinput_history_add(TuiTextInput *input, const char *line);
 
-/* Set completion callback */
-void tui_textinput_set_completer(TuiTextInput *input, TuiCompletionCallback cb,
-                                 void *data);
+/* Insert a completion word, replacing the current word starting at word_start.
+ * word_start is the byte offset of the word being completed. */
+void tui_textinput_insert_completion(TuiTextInput *input, int word_start,
+                                     const char *word);
+
+/* Set characters treated as word boundaries for tab completion.
+ * Default is " \t". Pass NULL to reset to default. */
+void tui_textinput_set_word_delimiters(TuiTextInput *input,
+                                       const char *delimiters);
 
 /* Set whether to show the prompt */
 void tui_textinput_set_show_prompt(TuiTextInput *input, int show);

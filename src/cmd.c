@@ -95,6 +95,21 @@ TuiCmd *tui_cmd_line_submit(char *line)
     return cmd;
 }
 
+/* Create a tab complete command (takes ownership of prefix string) */
+TuiCmd *tui_cmd_tab_complete(char *prefix, int word_start)
+{
+    TuiCmd *cmd = (TuiCmd *)malloc(sizeof(TuiCmd));
+    if (!cmd)
+        return NULL;
+
+    memset(cmd, 0, sizeof(TuiCmd));
+    cmd->type = TUI_CMD_TAB_COMPLETE;
+    cmd->payload.tab_complete.prefix = prefix;
+    cmd->payload.tab_complete.word_start = word_start;
+
+    return cmd;
+}
+
 /* Free a command and its associated resources */
 void tui_cmd_free(TuiCmd *cmd)
 {
@@ -123,6 +138,12 @@ void tui_cmd_free(TuiCmd *cmd)
     case TUI_CMD_LINE_SUBMIT:
         if (cmd->payload.line) {
             free(cmd->payload.line);
+        }
+        break;
+
+    case TUI_CMD_TAB_COMPLETE:
+        if (cmd->payload.tab_complete.prefix) {
+            free(cmd->payload.tab_complete.prefix);
         }
         break;
 

@@ -578,22 +578,6 @@ static void undo_free(TuiTextInput *input)
     input->undo_cap = 0;
 }
 
-/* Free completion list */
-static void free_completions(TuiTextInput *input)
-{
-    if (input->completions) {
-        for (int i = 0; i < input->completion_count; i++) {
-            free(input->completions[i]);
-        }
-        free(input->completions);
-        input->completions = NULL;
-        input->completion_count = 0;
-        input->completion_index = 0;
-    }
-    input->completion_word_start = 0;
-    input->completion_word_len = 0;
-}
-
 /* Check if a history entry matches the current prefix filter */
 static int history_matches_prefix(const char *entry, const char *prefix,
                                   size_t prefix_len)
@@ -684,58 +668,6 @@ static void replace_word(TuiTextInput *input, int start, int old_len,
     recalculate_cursor_position(input);
 }
 
-/* Handle tab completion */
-static void handle_tab_completion(TuiTextInput *input)
-{
-    if (!input->completer)
-        return;
-
-    /* If we already have completions, cycle through them */
-    if (input->completions && input->completion_count > 0) {
-        input->completion_index =
-            (input->completion_index + 1) % input->completion_count;
-        const char *word = input->completions[input->completion_index];
-        replace_word(input, input->completion_word_start,
-                     input->completion_word_len, word);
-        input->completion_word_len = (int)strlen(word);
-        return;
-    }
-
-    /* Find word start by scanning backward from cursor for space/tab */
-    int word_start = (int)input->cursor_byte;
-    while (word_start > 0 && input->text[word_start - 1] != ' ' &&
-           input->text[word_start - 1] != '\t') {
-        word_start--;
-    }
-    int word_len = (int)input->cursor_byte - word_start;
-
-    /* Get new completions */
-    char **completions = input->completer(input->text, (int)input->cursor_byte,
-                                          input->completer_data);
-    if (!completions || !completions[0]) {
-        /* No completions */
-        if (completions)
-            free(completions);
-        return;
-    }
-
-    /* Count completions */
-    int count = 0;
-    while (completions[count])
-        count++;
-
-    input->completions = completions;
-    input->completion_count = count;
-    input->completion_index = 0;
-    input->completion_word_start = word_start;
-    input->completion_word_len = word_len;
-
-    /* Apply first completion */
-    const char *word = input->completions[0];
-    replace_word(input, word_start, word_len, word);
-    input->completion_word_len = (int)strlen(word);
-}
-
 /* Create a new text input component */
 TuiTextInput *tui_textinput_create(const TuiTextInputConfig *config)
 {
@@ -759,6 +691,9 @@ TuiTextInput *tui_textinput_create(const TuiTextInputConfig *config)
     input->multiline = 0;
     input->show_prompt = 1;  /* Show prompt by default */
     input->history_pos = -1; /* -1 means we're at current input */
+
+    /* Default word delimiters for tab completion */
+    input->word_delimiters = strdup(" \t");
 
     /* Apply config if provided */
     if (config) {
@@ -789,8 +724,8 @@ void tui_textinput_free(TuiTextInput *input)
         }
         free(input->history);
     }
-    free_completions(input);
     free(input->kill_buf);
+    free(input->word_delimiters);
     undo_free(input);
     free(input);
 }
@@ -837,10 +772,6 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
     int was_kill = input->last_was_kill;
     input->last_was_kill = 0;
 
-    /* Any key other than Tab invalidates active completions */
-    if (key.key != TUI_KEY_TAB)
-        free_completions(input);
-
     /* Handle special keys */
     switch (key.key) {
     case TUI_KEY_LEFT:
@@ -880,8 +811,23 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         break;
 
     case TUI_KEY_TAB:
-        handle_tab_completion(input);
+    {
+        /* Find word start by scanning backward from cursor for delimiters */
+        int word_start = (int)input->cursor_byte;
+        while (word_start > 0 &&
+               !strchr(input->word_delimiters, input->text[word_start - 1])) {
+            word_start--;
+        }
+        int prefix_len = (int)input->cursor_byte - word_start;
+        char *prefix = (char *)malloc(prefix_len + 1);
+        if (prefix) {
+            memcpy(prefix, input->text + word_start, prefix_len);
+            prefix[prefix_len] = '\0';
+            free(snap_text);
+            return tui_update_result(tui_cmd_tab_complete(prefix, word_start));
+        }
         break;
+    }
 
     case TUI_KEY_HOME:
         cursor_home(input);
@@ -1477,15 +1423,26 @@ void tui_textinput_history_add(TuiTextInput *input, const char *line)
     input->history_pos = -1;
 }
 
-/* Set completion callback */
-void tui_textinput_set_completer(TuiTextInput *input, TuiCompletionCallback cb,
-                                 void *data)
+/* Insert a completion word, replacing the current word from word_start to cursor */
+void tui_textinput_insert_completion(TuiTextInput *input, int word_start,
+                                     const char *word)
+{
+    if (!input || !word)
+        return;
+    int old_len = (int)input->cursor_byte - word_start;
+    if (old_len < 0)
+        old_len = 0;
+    replace_word(input, word_start, old_len, word);
+}
+
+/* Set characters treated as word boundaries for tab completion */
+void tui_textinput_set_word_delimiters(TuiTextInput *input,
+                                       const char *delimiters)
 {
     if (!input)
         return;
-    input->completer = cb;
-    input->completer_data = data;
-    free_completions(input);
+    free(input->word_delimiters);
+    input->word_delimiters = strdup(delimiters ? delimiters : " \t");
 }
 
 /* Set whether to show the prompt */

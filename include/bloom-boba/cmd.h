@@ -19,6 +19,7 @@ typedef enum {
   TUI_CMD_QUIT,         /* Quit the application */
   TUI_CMD_BATCH,        /* Batch of commands to execute */
   TUI_CMD_LINE_SUBMIT,  /* Line submitted (contains line text) */
+  TUI_CMD_TAB_COMPLETE, /* Tab pressed (contains prefix and word position) */
   TUI_CMD_CUSTOM_BASE = 1000, /* Base for application-defined commands */
 } TuiCmdType;
 
@@ -41,6 +42,10 @@ struct TuiCmd {
       int count;
     } batch;
     char *line; /* For TUI_CMD_LINE_SUBMIT - owned, must be freed */
+    struct {
+      char *prefix;  /* Word prefix at cursor - owned, must be freed */
+      int word_start; /* Byte offset where the word starts in input */
+    } tab_complete;
   } payload;
 };
 
@@ -67,6 +72,9 @@ TuiCmd *tui_cmd_custom(TuiCmdCallback callback, void *data,
 
 /* Create a line submit command (takes ownership of line string) */
 TuiCmd *tui_cmd_line_submit(char *line);
+
+/* Create a tab complete command (takes ownership of prefix string) */
+TuiCmd *tui_cmd_tab_complete(char *prefix, int word_start);
 
 /* Free a command and its associated resources */
 void tui_cmd_free(TuiCmd *cmd);

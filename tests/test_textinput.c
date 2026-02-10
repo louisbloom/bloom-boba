@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <bloom-boba/cmd.h>
 #include <bloom-boba/components/textinput.h>
 #include <bloom-boba/dynamic_buffer.h>
 #include <bloom-boba/msg.h>
@@ -42,22 +43,6 @@ static void send_char(TuiTextInput *input, char c) {
         tui_cmd_free(r.cmd);
 }
 
-/* Tab completion test helper */
-static char **test_completer(const char *buffer, int cursor_pos,
-                             void *userdata) {
-    (void)cursor_pos;
-    (void)userdata;
-
-    /* Simple completer: prefix "he" -> {"hello", "help", NULL} */
-    if (strncmp(buffer, "he", 2) == 0) {
-        char **completions = malloc(3 * sizeof(char *));
-        completions[0] = strdup("hello");
-        completions[1] = strdup("help");
-        completions[2] = NULL;
-        return completions;
-    }
-    return NULL;
-}
 
 /* ---------- tests ---------- */
 
@@ -283,52 +268,53 @@ static void test_history_navigation(void) {
     tui_textinput_free(input);
 }
 
-static void test_tab_completion(void) {
+static void test_tab_emits_command(void) {
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
-    tui_textinput_set_completer(input, test_completer, NULL);
 
     send_string(input, "he");
 
-    /* Press Tab -> first completion */
-    send_key(input, TUI_KEY_TAB);
-    assert(strcmp(tui_textinput_text(input), "hello") == 0);
+    /* Press Tab -> should emit TUI_CMD_TAB_COMPLETE */
+    TuiUpdateResult r = tui_textinput_update(input, tui_msg_key(TUI_KEY_TAB, 0, 0));
+    assert(r.cmd != NULL);
+    assert(r.cmd->type == TUI_CMD_TAB_COMPLETE);
+    assert(strcmp(r.cmd->payload.tab_complete.prefix, "he") == 0);
+    assert(r.cmd->payload.tab_complete.word_start == 0);
+    tui_cmd_free(r.cmd);
+
+    /* Text should be unchanged (app does the insertion) */
+    assert(strcmp(tui_textinput_text(input), "he") == 0);
 
     tui_textinput_free(input);
 }
 
-static void test_tab_cycling(void) {
+static void test_tab_word_start(void) {
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
-    tui_textinput_set_completer(input, test_completer, NULL);
 
-    send_string(input, "he");
+    send_string(input, "foo he");
 
-    /* First Tab -> "hello" */
-    send_key(input, TUI_KEY_TAB);
-    assert(strcmp(tui_textinput_text(input), "hello") == 0);
-
-    /* Second Tab -> "help" */
-    send_key(input, TUI_KEY_TAB);
-    assert(strcmp(tui_textinput_text(input), "help") == 0);
-
-    /* Third Tab -> cycles back to "hello" */
-    send_key(input, TUI_KEY_TAB);
-    assert(strcmp(tui_textinput_text(input), "hello") == 0);
+    /* Tab should extract "he" starting at byte 4 */
+    TuiUpdateResult r = tui_textinput_update(input, tui_msg_key(TUI_KEY_TAB, 0, 0));
+    assert(r.cmd != NULL);
+    assert(r.cmd->type == TUI_CMD_TAB_COMPLETE);
+    assert(strcmp(r.cmd->payload.tab_complete.prefix, "he") == 0);
+    assert(r.cmd->payload.tab_complete.word_start == 4);
+    tui_cmd_free(r.cmd);
 
     tui_textinput_free(input);
 }
 
-static void test_tab_no_completions(void) {
+static void test_insert_completion(void) {
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
-    tui_textinput_set_completer(input, test_completer, NULL);
 
-    send_string(input, "xyz");
+    send_string(input, "he");
 
-    /* Tab with no matches should leave text unchanged */
-    send_key(input, TUI_KEY_TAB);
-    assert(strcmp(tui_textinput_text(input), "xyz") == 0);
+    /* Simulate app inserting a completion */
+    tui_textinput_insert_completion(input, 0, "hello");
+    assert(strcmp(tui_textinput_text(input), "hello") == 0);
+    assert(tui_textinput_cursor(input) == 5);
 
     tui_textinput_free(input);
 }
@@ -443,9 +429,9 @@ int main(void) {
     RUN_TEST(test_focus);
     RUN_TEST(test_unfocused_ignores_input);
     RUN_TEST(test_history_navigation);
-    RUN_TEST(test_tab_completion);
-    RUN_TEST(test_tab_cycling);
-    RUN_TEST(test_tab_no_completions);
+    RUN_TEST(test_tab_emits_command);
+    RUN_TEST(test_tab_word_start);
+    RUN_TEST(test_insert_completion);
     RUN_TEST(test_view_output);
     RUN_TEST(test_set_cursor);
     RUN_TEST(test_line_count);
