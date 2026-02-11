@@ -1,10 +1,97 @@
 /* runtime.c - Runtime and event loop implementation */
 
+#include <bloom-boba/ansi_sequences.h>
 #include <bloom-boba/runtime.h>
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _WIN32
+#include <errno.h>
+#include <signal.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
+#include <unistd.h>
+#endif
+
 #define MAX_MSGS_PER_FRAME 64
+
+/* --- Signal handling (Unix only) --- */
+#ifndef _WIN32
+static volatile sig_atomic_t s_sigwinch_received = 0;
+static volatile sig_atomic_t s_sigint_received = 0;
+static TuiRuntime *s_active_runtime = NULL;
+
+static void runtime_sigwinch_handler(int sig)
+{
+    (void)sig;
+    s_sigwinch_received = 1;
+}
+
+static void runtime_sigint_handler(int sig)
+{
+    (void)sig;
+    s_sigint_received = 1;
+}
+#endif
+
+/* --- Raw mode helpers (Unix only) --- */
+#ifndef _WIN32
+static int runtime_enable_raw_mode(TuiRuntime *rt)
+{
+    if (rt->raw_mode_active)
+        return 0;
+
+    if (tcgetattr(STDIN_FILENO, &rt->orig_termios) < 0)
+        return -1;
+
+    struct termios raw = rt->orig_termios;
+    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    raw.c_oflag &= ~(OPOST);
+    raw.c_cflag |= (CS8);
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 1;
+
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0)
+        return -1;
+
+    rt->raw_mode_active = 1;
+    return 0;
+}
+
+static void runtime_disable_raw_mode(TuiRuntime *rt)
+{
+    if (rt->raw_mode_active) {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &rt->orig_termios);
+        rt->raw_mode_active = 0;
+    }
+}
+#endif
+
+/* --- Terminal size helper --- */
+#ifndef _WIN32
+static void runtime_update_size(TuiRuntime *rt)
+{
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
+        if (ws.ws_col > 0)
+            rt->term_width = ws.ws_col;
+        if (ws.ws_row > 0)
+            rt->term_height = ws.ws_row;
+    }
+}
+#endif
+
+/* --- atexit cleanup --- */
+static void runtime_atexit_cleanup(void)
+{
+#ifndef _WIN32
+    if (s_active_runtime && s_active_runtime->started) {
+        tui_runtime_stop(s_active_runtime);
+        runtime_disable_raw_mode(s_active_runtime);
+    }
+#endif
+}
 
 /* Forward declaration */
 static int execute_cmd(TuiRuntime *runtime, TuiCmd *cmd);
@@ -55,10 +142,12 @@ TuiRuntime *tui_runtime_create(TuiComponent *component, void *component_config,
         runtime->config = *runtime_config;
     } else {
         /* Defaults */
-        runtime->config.use_alternate_screen = 0;
-        runtime->config.hide_cursor = 0;
+        memset(&runtime->config, 0, sizeof(runtime->config));
         runtime->config.raw_mode = 1;
     }
+
+    /* Resolve output target */
+    runtime->output = runtime->config.output ? runtime->config.output : stdout;
 
     runtime->running = 1;
     runtime->quit_requested = 0;
@@ -89,6 +178,14 @@ void tui_runtime_free(TuiRuntime *runtime)
     free(runtime);
 }
 
+/* Write a string to the runtime's output */
+static void runtime_write(TuiRuntime *runtime, const char *s)
+{
+    if (s) {
+        fputs(s, runtime->output);
+    }
+}
+
 /* Execute a command */
 static int execute_cmd(TuiRuntime *runtime, TuiCmd *cmd)
 {
@@ -113,6 +210,57 @@ static int execute_cmd(TuiRuntime *runtime, TuiCmd *cmd)
     case TUI_CMD_NONE:
         break;
 
+    /* Terminal control commands — write sequences to output */
+    case TUI_CMD_ENTER_ALT_SCREEN:
+        runtime_write(runtime, ANSI_ENTER_ALT_SCREEN);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_EXIT_ALT_SCREEN:
+        runtime_write(runtime, ANSI_EXIT_ALT_SCREEN);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_ENABLE_MOUSE:
+        runtime_write(runtime, ANSI_ENABLE_MOUSE);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_DISABLE_MOUSE:
+        runtime_write(runtime, ANSI_DISABLE_MOUSE);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_ENABLE_KEYBOARD_ENHANCEMENT:
+        runtime_write(runtime, ANSI_ENABLE_KITTY_KBD);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_DISABLE_KEYBOARD_ENHANCEMENT:
+        runtime_write(runtime, ANSI_DISABLE_KITTY_KBD);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_SHOW_CURSOR:
+        runtime_write(runtime, ANSI_SHOW_CURSOR);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_HIDE_CURSOR:
+        runtime_write(runtime, ANSI_HIDE_CURSOR);
+        fflush(runtime->output);
+        break;
+
+    case TUI_CMD_SET_WINDOW_TITLE:
+    {
+        char buf[512];
+        ansi_set_window_title(buf, sizeof(buf),
+                              cmd->payload.window_title ? cmd->payload.window_title : "");
+        runtime_write(runtime, buf);
+        fflush(runtime->output);
+        break;
+    }
+
     default:
         /* Custom command - execute callback and send result message */
         if (cmd->type >= TUI_CMD_CUSTOM_BASE && cmd->payload.custom.callback) {
@@ -121,6 +269,11 @@ static int execute_cmd(TuiRuntime *runtime, TuiCmd *cmd)
             if (result_msg.type != TUI_MSG_NONE) {
                 tui_runtime_send(runtime, result_msg);
             }
+        } else if (runtime->config.cmd_handler) {
+            /* Delegate to app callback (LINE_SUBMIT, TAB_COMPLETE, etc.) */
+            runtime->config.cmd_handler(cmd, runtime->config.cmd_handler_data);
+            /* cmd_handler is responsible for the cmd, don't free here */
+            return runtime->running;
         }
         break;
     }
@@ -197,4 +350,225 @@ void tui_runtime_quit(TuiRuntime *runtime)
         runtime->quit_requested = 1;
         runtime->running = 0;
     }
+}
+
+/* Start terminal mode: enter alt screen, enable mouse/keyboard per config */
+void tui_runtime_start(TuiRuntime *runtime)
+{
+    if (!runtime || runtime->started)
+        return;
+
+    if (runtime->config.use_alternate_screen) {
+        runtime_write(runtime, ANSI_ENTER_ALT_SCREEN);
+        /* Clear screen and home cursor after entering alt screen */
+        runtime_write(runtime, ED_ENTIRE CUP_HOME);
+    }
+
+    if (runtime->config.enable_mouse)
+        runtime_write(runtime, ANSI_ENABLE_MOUSE);
+
+    if (runtime->config.enable_keyboard_enhancement)
+        runtime_write(runtime, ANSI_ENABLE_KITTY_KBD);
+
+    fflush(runtime->output);
+    runtime->started = 1;
+}
+
+/* Stop terminal mode: reverse of start */
+void tui_runtime_stop(TuiRuntime *runtime)
+{
+    if (!runtime || !runtime->started)
+        return;
+
+    if (runtime->config.enable_keyboard_enhancement)
+        runtime_write(runtime, ANSI_DISABLE_KITTY_KBD);
+
+    if (runtime->config.enable_mouse)
+        runtime_write(runtime, ANSI_DISABLE_MOUSE);
+
+    if (runtime->config.use_alternate_screen)
+        runtime_write(runtime, ANSI_EXIT_ALT_SCREEN);
+
+    fflush(runtime->output);
+    runtime->started = 0;
+}
+
+/* Render view and write to output (with cursor hide/show) */
+void tui_runtime_flush(TuiRuntime *runtime)
+{
+    if (!runtime || !runtime->component || !runtime->model)
+        return;
+
+    dynamic_buffer_clear(runtime->view_buf);
+
+    /* Hide cursor during render to prevent flicker */
+    dynamic_buffer_append_str(runtime->view_buf, ANSI_HIDE_CURSOR);
+
+    /* Render component view into buffer */
+    runtime->component->view(runtime->model, runtime->view_buf);
+
+    /* Show cursor */
+    dynamic_buffer_append_str(runtime->view_buf, ANSI_SHOW_CURSOR);
+
+    /* Write all at once */
+    fwrite(dynamic_buffer_data(runtime->view_buf), 1,
+           dynamic_buffer_len(runtime->view_buf), runtime->output);
+    fflush(runtime->output);
+}
+
+/* Execute a command outside the update cycle */
+void tui_runtime_exec(TuiRuntime *runtime, TuiCmd *cmd)
+{
+    if (!runtime || !cmd)
+        return;
+    execute_cmd(runtime, cmd);
+}
+
+/* Run the full event loop (blocking). Owns raw mode, signals, select().
+ * Returns 0 on normal exit, -1 on error. */
+int tui_runtime_run(TuiRuntime *runtime)
+{
+    if (!runtime)
+        return -1;
+
+#ifndef _WIN32
+    /* Get initial terminal size and send to component */
+    runtime_update_size(runtime);
+    TuiMsg size_msg = { .type = TUI_MSG_WINDOW_SIZE,
+                        .data.size = { .width = runtime->term_width,
+                                       .height = runtime->term_height } };
+    tui_runtime_send(runtime, size_msg);
+
+    /* Enable raw mode if configured */
+    if (runtime->config.raw_mode) {
+        if (runtime_enable_raw_mode(runtime) < 0)
+            return -1;
+    }
+
+    /* Install signal handlers (save old ones for restoration) */
+    struct sigaction sa_winch, sa_int, old_winch, old_int;
+    s_sigwinch_received = 0;
+    s_sigint_received = 0;
+
+    memset(&sa_winch, 0, sizeof(sa_winch));
+    sa_winch.sa_handler = runtime_sigwinch_handler;
+    sa_winch.sa_flags = SA_RESTART;
+    sigaction(SIGWINCH, &sa_winch, &old_winch);
+
+    memset(&sa_int, 0, sizeof(sa_int));
+    sa_int.sa_handler = runtime_sigint_handler;
+    sa_int.sa_flags = 0;
+    sigaction(SIGINT, &sa_int, &old_int);
+
+    /* Register for atexit safety */
+    s_active_runtime = runtime;
+    atexit(runtime_atexit_cleanup);
+
+    /* Start terminal mode (alt screen, mouse, keyboard) */
+    tui_runtime_start(runtime);
+    tui_runtime_flush(runtime);
+
+    /* Main event loop */
+    while (runtime->running && !s_sigint_received) {
+        /* Check for deferred SIGWINCH */
+        if (s_sigwinch_received) {
+            s_sigwinch_received = 0;
+            runtime_update_size(runtime);
+            TuiMsg ws_msg = {
+                .type = TUI_MSG_WINDOW_SIZE,
+                .data.size = { .width = runtime->term_width,
+                               .height = runtime->term_height }
+            };
+            tui_runtime_send(runtime, ws_msg);
+            if (runtime->config.on_resize)
+                runtime->config.on_resize(runtime->term_width,
+                                          runtime->term_height,
+                                          runtime->config.event_data);
+            tui_runtime_flush(runtime);
+        }
+
+        /* Build fd_set: stdin + optional external FD */
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(STDIN_FILENO, &read_fds);
+        int max_fd = STDIN_FILENO;
+
+        int ext_fd = -1;
+        if (runtime->config.get_external_fd) {
+            ext_fd =
+                runtime->config.get_external_fd(runtime->config.event_data);
+            if (ext_fd >= 0) {
+                FD_SET(ext_fd, &read_fds);
+                if (ext_fd > max_fd)
+                    max_fd = ext_fd;
+            }
+        }
+
+        /* 100ms tick timeout */
+        struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+        int ready = select(max_fd + 1, &read_fds, NULL, NULL, &tv);
+
+        if (ready < 0) {
+            if (errno == EINTR)
+                continue; /* Will check signal flags next iteration */
+            break;        /* Real error */
+        }
+
+        /* stdin ready */
+        if (ready > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
+            unsigned char buf[256];
+            ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
+            if (n > 0) {
+                tui_runtime_process_input(runtime, buf, n);
+                if (runtime->config.on_stdin_processed)
+                    runtime->config.on_stdin_processed(
+                        runtime->config.event_data);
+                tui_runtime_flush(runtime);
+            } else if (n == 0) {
+                /* EOF on stdin */
+                break;
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                break; /* Read error */
+            }
+        }
+
+        /* External FD ready */
+        if (ready > 0 && ext_fd >= 0 && FD_ISSET(ext_fd, &read_fds)) {
+            if (runtime->config.on_external_ready)
+                runtime->config.on_external_ready(runtime->config.event_data);
+        }
+
+        /* Tick (timeout) */
+        if (ready == 0) {
+            if (runtime->config.on_tick)
+                runtime->config.on_tick(runtime->config.event_data);
+        }
+    }
+
+    /* Teardown */
+    tui_runtime_stop(runtime);
+    runtime_disable_raw_mode(runtime);
+    s_active_runtime = NULL;
+
+    /* Restore old signal handlers */
+    sigaction(SIGWINCH, &old_winch, NULL);
+    sigaction(SIGINT, &old_int, NULL);
+
+    return 0;
+#else
+    /* Windows: not yet implemented */
+    return -1;
+#endif
+}
+
+/* Get current terminal width */
+int tui_runtime_get_width(TuiRuntime *runtime)
+{
+    return runtime ? runtime->term_width : 0;
+}
+
+/* Get current terminal height */
+int tui_runtime_get_height(TuiRuntime *runtime)
+{
+    return runtime ? runtime->term_height : 0;
 }

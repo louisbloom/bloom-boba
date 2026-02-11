@@ -6,9 +6,9 @@
  * - Executing commands
  * - Rendering views
  *
- * For applications that want to integrate with an existing event loop
- * (like bloom-telnet), you can use the lower-level functions directly
- * instead of tui_run().
+ * Two usage modes:
+ * 1. tui_runtime_run() — owns the event loop, raw mode, signals (Bubbletea-style)
+ * 2. Lower-level functions — caller owns the event loop and calls process_input/flush
  */
 
 #ifndef BLOOM_BOBA_RUNTIME_H
@@ -20,23 +20,71 @@
 #include "input_parser.h"
 #include "msg.h"
 
+#include <stdio.h>
+
+#ifndef _WIN32
+#include <termios.h>
+#endif
+
+/* Forward declaration */
+typedef struct TuiRuntime TuiRuntime;
+
+/* Callback for commands the runtime doesn't handle natively */
+typedef void (*TuiCmdHandler)(TuiCmd *cmd, void *user_data);
+
+/* Callback: return an external FD to poll alongside stdin (-1 = none) */
+typedef int (*TuiGetExternalFd)(void *user_data);
+
+/* Callback: external FD is ready for reading */
+typedef void (*TuiOnExternalReady)(void *user_data);
+
+/* Callback: called every tick (select timeout, ~100ms) */
+typedef void (*TuiOnTick)(void *user_data);
+
+/* Callback: terminal resized (width, height already updated in runtime) */
+typedef void (*TuiOnResize)(int width, int height, void *user_data);
+
+/* Callback: called after stdin input is processed through the runtime */
+typedef void (*TuiOnStdinProcessed)(void *user_data);
+
 /* Runtime configuration */
 typedef struct TuiRuntimeConfig {
-  int use_alternate_screen; /* Use alternate screen buffer */
-  int hide_cursor;          /* Hide cursor during rendering */
-  int raw_mode;             /* Enable raw terminal mode */
+  int use_alternate_screen;        /* Use alternate screen buffer */
+  int hide_cursor;                 /* Hide cursor during rendering */
+  int raw_mode;                    /* Enable raw terminal mode */
+  int enable_mouse;                /* Enable mouse tracking */
+  int enable_keyboard_enhancement; /* Enable kitty keyboard protocol */
+  FILE *output;                    /* Output target (NULL = stdout) */
+  TuiCmdHandler cmd_handler;       /* App command callback */
+  void *cmd_handler_data;          /* Callback context */
+
+  /* Event loop callbacks (used by tui_runtime_run) */
+  TuiGetExternalFd get_external_fd;   /* External FD to poll */
+  TuiOnExternalReady on_external_ready; /* External FD ready */
+  TuiOnTick on_tick;                  /* Tick (~100ms timeout) */
+  TuiOnResize on_resize;              /* Terminal resized */
+  TuiOnStdinProcessed on_stdin_processed; /* After stdin processed */
+  void *event_data;                   /* Context pointer for event callbacks */
 } TuiRuntimeConfig;
 
 /* Runtime state */
-typedef struct TuiRuntime {
+struct TuiRuntime {
   TuiComponent *component;     /* Component interface */
   TuiModel *model;             /* Current model state */
   TuiInputParser *parser;      /* Input parser */
   DynamicBuffer *view_buf;     /* Buffer for view rendering */
   TuiRuntimeConfig config;     /* Runtime configuration */
+  FILE *output;                /* Resolved output target */
   int running;                 /* Whether runtime is running */
   int quit_requested;          /* Quit has been requested */
-} TuiRuntime;
+  int started;                 /* Idempotent start/stop guard */
+  int term_width;              /* Current terminal width */
+  int term_height;             /* Current terminal height */
+#ifndef _WIN32
+  struct termios orig_termios; /* Saved terminal settings */
+  int raw_mode_active;         /* Raw mode currently enabled */
+#endif
+};
 
 /* Create runtime with component
  *
@@ -91,5 +139,25 @@ int tui_runtime_should_quit(TuiRuntime *runtime);
 
 /* Request runtime to quit */
 void tui_runtime_quit(TuiRuntime *runtime);
+
+/* Start terminal mode: enter alt screen, enable mouse/keyboard per config */
+void tui_runtime_start(TuiRuntime *runtime);
+
+/* Stop terminal mode: reverse of start */
+void tui_runtime_stop(TuiRuntime *runtime);
+
+/* Render view and write to output (with cursor hide/show) */
+void tui_runtime_flush(TuiRuntime *runtime);
+
+/* Execute a command outside the update cycle */
+void tui_runtime_exec(TuiRuntime *runtime, TuiCmd *cmd);
+
+/* Run the full event loop (blocking). Owns raw mode, signals, select().
+ * Returns 0 on normal exit, -1 on error. */
+int tui_runtime_run(TuiRuntime *runtime);
+
+/* Get current terminal dimensions */
+int tui_runtime_get_width(TuiRuntime *runtime);
+int tui_runtime_get_height(TuiRuntime *runtime);
 
 #endif /* BLOOM_BOBA_RUNTIME_H */

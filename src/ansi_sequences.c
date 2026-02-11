@@ -54,3 +54,10 @@ void ansi_format_bg_color_rgb(char *buf, size_t size, int r, int g, int b)
         return;
     snprintf(buf, size, CSI SGR_BG_RGB_PREFIX "%d;%d;%d" SGR_FINAL, r, g, b);
 }
+
+void ansi_set_window_title(char *buf, size_t size, const char *title)
+{
+    if (!buf || size < 8 || !title)
+        return;
+    snprintf(buf, size, OSC "2;%s" ST, title);
+}

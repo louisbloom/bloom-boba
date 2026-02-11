@@ -23,6 +23,18 @@
 /* Base control characters and sequences */
 #define ESC "\033"  /* Escape character */
 #define CSI ESC "[" /* CSI (Control Sequence Introducer) = ESC [ */
+#define OSC ESC "]" /* OSC (Operating System Command) = ESC ] */
+#define ST  ESC "\\" /* ST (String Terminator) = ESC \ */
+
+/* Terminal mode sequences */
+#define ANSI_ENTER_ALT_SCREEN CSI "?1049h"
+#define ANSI_EXIT_ALT_SCREEN  CSI "?1049l"
+#define ANSI_ENABLE_MOUSE     CSI "?1000h" CSI "?1006h"
+#define ANSI_DISABLE_MOUSE    CSI "?1006l" CSI "?1000l"
+#define ANSI_ENABLE_KITTY_KBD CSI ">1u"
+#define ANSI_DISABLE_KITTY_KBD CSI "<u"
+#define ANSI_HIDE_CURSOR      CSI "?25l"
+#define ANSI_SHOW_CURSOR      CSI "?25h"
 
 /* Final characters for control sequences */
 #define CUP_FINAL "H"     /* CUP (Cursor Position) */
@@ -205,5 +217,14 @@ void ansi_format_fg_color_rgb(char *buf, size_t size, int r, int g, int b);
  * Result: "\033[48;2;<r>;<g>;<b>m"
  */
 void ansi_format_bg_color_rgb(char *buf, size_t size, int r, int g, int b);
+
+/* Format OSC 2 window title sequence
+ * Parameters:
+ *   buf: Output buffer (should be large enough for title + overhead)
+ *   size: Size of output buffer
+ *   title: Window title string
+ * Result: "\033]2;title\033\\"
+ */
+void ansi_set_window_title(char *buf, size_t size, const char *title);
 
 #endif /* BLOOM_BOBA_ANSI_SEQUENCES_H */
