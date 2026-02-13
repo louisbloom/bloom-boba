@@ -37,20 +37,6 @@ static size_t utf8_prev_char(const char *text, size_t pos)
     return pos;
 }
 
-/* UTF-8 helper: Count display width (codepoints) of a UTF-8 string */
-static int utf8_display_width(const char *str)
-{
-    if (!str)
-        return 0;
-    int width = 0;
-    while (*str) {
-        int char_len = utf8_char_len(str);
-        width++;
-        str += char_len;
-    }
-    return width;
-}
-
 /* Count total codepoints in a UTF-8 string */
 static int utf8_codepoint_count(const char *text, size_t len)
 {
@@ -497,29 +483,45 @@ static void transpose_chars(TuiTextInput *input)
     recalculate_cursor_position(input);
 }
 
-/* Capture pre-edit state into caller-owned variables */
-static inline void undo_snapshot(TuiTextInput *input, size_t *out_len,
-                                 size_t *out_cursor, char **out_text)
+/* Capture pre-edit state into the reusable snapshot buffer */
+static inline void undo_snapshot(TuiTextInput *input)
 {
-    *out_len = input->text_len;
-    *out_cursor = input->cursor_byte;
-    *out_text = (char *)malloc(input->text_len + 1);
-    if (*out_text)
-        memcpy(*out_text, input->text, input->text_len + 1);
+    size_t needed = input->text_len + 1;
+    if (input->snap_buf_cap < needed) {
+        size_t new_cap = input->snap_buf_cap == 0 ? 256 : input->snap_buf_cap;
+        while (new_cap < needed)
+            new_cap *= 2;
+        char *new_buf = (char *)realloc(input->snap_buf, new_cap);
+        if (!new_buf)
+            return;
+        input->snap_buf = new_buf;
+        input->snap_buf_cap = new_cap;
+    }
+    memcpy(input->snap_buf, input->text, input->text_len + 1);
+    input->snap_len = input->text_len;
+    input->snap_cursor = input->cursor_byte;
+    input->snap_valid = 1;
 }
 
 /* Push snapshot onto undo stack only if text actually changed */
-static void undo_commit(TuiTextInput *input, char *snap_text, size_t snap_len,
-                        size_t snap_cursor)
+static void undo_commit(TuiTextInput *input)
 {
-    if (!snap_text)
+    if (!input->snap_valid)
         return;
+    input->snap_valid = 0;
 
-    /* Text unchanged — discard snapshot */
-    if (snap_len == input->text_len &&
-        memcmp(snap_text, input->text, snap_len) == 0) {
-        free(snap_text);
+    /* Text unchanged — nothing to do */
+    if (input->snap_len == input->text_len &&
+        memcmp(input->snap_buf, input->text, input->snap_len) == 0) {
         return;
+    }
+
+    /* Text was modified — reset history navigation so next arrow-up
+     * treats current text as a new prefix search. */
+    if (input->history_pos != -1) {
+        input->history_pos = -1;
+        free(input->saved_input);
+        input->saved_input = NULL;
     }
 
     /* Grow stack if needed */
@@ -527,19 +529,22 @@ static void undo_commit(TuiTextInput *input, char *snap_text, size_t snap_len,
         int new_cap = input->undo_cap == 0 ? 32 : input->undo_cap * 2;
         void *new_stack =
             realloc(input->undo_stack, new_cap * sizeof(*input->undo_stack));
-        if (!new_stack) {
-            free(snap_text);
+        if (!new_stack)
             return;
-        }
         input->undo_stack = new_stack;
         input->undo_cap = new_cap;
     }
 
-    /* Transfer ownership of snap_text to the stack */
+    /* Copy snapshot into the undo stack */
+    char *copy = (char *)malloc(input->snap_len + 1);
+    if (!copy)
+        return;
+    memcpy(copy, input->snap_buf, input->snap_len + 1);
+
     int idx = input->undo_count;
-    input->undo_stack[idx].text = snap_text;
-    input->undo_stack[idx].text_len = snap_len;
-    input->undo_stack[idx].cursor_byte = snap_cursor;
+    input->undo_stack[idx].text = copy;
+    input->undo_stack[idx].text_len = input->snap_len;
+    input->undo_stack[idx].cursor_byte = input->snap_cursor;
     input->undo_count++;
 }
 
@@ -595,6 +600,9 @@ static void history_prev(TuiTextInput *input)
     if (!input->history || input->history_count == 0)
         return;
 
+    undo_free(input);
+    input->snap_valid = 0;
+
     /* Save current input if we're at position -1 */
     if (input->history_pos == -1) {
         free(input->saved_input);
@@ -621,6 +629,9 @@ static void history_next(TuiTextInput *input)
     if (input->history_pos < 0)
         return;
 
+    undo_free(input);
+    input->snap_valid = 0;
+
     const char *prefix = input->saved_input ? input->saved_input : "";
     size_t prefix_len = strlen(prefix);
 
@@ -642,6 +653,17 @@ static void history_next(TuiTextInput *input)
     } else {
         tui_textinput_clear(input);
     }
+}
+
+/* Submit current text: clear, reset history, return command */
+static TuiUpdateResult line_submit(TuiTextInput *input)
+{
+    char *line = strdup(input->text);
+    tui_textinput_clear(input);
+    input->history_pos = -1;
+    free(input->saved_input);
+    input->saved_input = NULL;
+    return tui_update_result(tui_cmd_line_submit(line));
 }
 
 /* Replace bytes in text buffer from [start, start+old_len) with new_word */
@@ -699,7 +721,7 @@ TuiTextInput *tui_textinput_create(const TuiTextInputConfig *config)
     if (config) {
         input->prompt = config->prompt;
         if (input->prompt) {
-            input->prompt_len = utf8_display_width(input->prompt);
+            input->prompt_len = utf8_codepoint_count(input->prompt, strlen(input->prompt));
         }
         input->width = config->width;
         input->height = config->height;
@@ -726,6 +748,7 @@ void tui_textinput_free(TuiTextInput *input)
     }
     free(input->kill_buf);
     free(input->word_delimiters);
+    free(input->snap_buf);
     undo_free(input);
     free(input);
 }
@@ -764,9 +787,7 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
 
     /* Snapshot pre-edit state; will be pushed to undo stack only if text changes
      */
-    size_t snap_len, snap_cursor;
-    char *snap_text;
-    undo_snapshot(input, &snap_len, &snap_cursor, &snap_text);
+    undo_snapshot(input);
 
     /* Track consecutive kill commands for append behavior */
     int was_kill = input->last_was_kill;
@@ -823,7 +844,6 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         if (prefix) {
             memcpy(prefix, input->text + word_start, prefix_len);
             prefix[prefix_len] = '\0';
-            free(snap_text);
             return tui_update_result(tui_cmd_tab_complete(prefix, word_start));
         }
         break;
@@ -850,16 +870,7 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
             /* Shift+Enter in multiline: insert newline */
             insert_codepoint(input, '\n');
         } else {
-            /* Submit the line (both single-line and multiline Enter) */
-            char *line = strdup(input->text);
-            tui_textinput_clear(input);
-            input->history_pos = -1; /* Reset history navigation */
-            if (input->saved_input) {
-                free(input->saved_input);
-                input->saved_input = NULL;
-            }
-            free(snap_text);
-            return tui_update_result(tui_cmd_line_submit(line));
+            return line_submit(input);
         }
         break;
 
@@ -878,7 +889,6 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
                 } else if (key.rune == 'd' || key.rune == 'D') {
                     /* Ctrl+D: EOF on empty line, delete char otherwise */
                     if (input->text_len == 0 && !input->multiline) {
-                        free(snap_text);
                         return tui_update_result(tui_cmd_quit());
                     } else {
                         delete_at(input);
@@ -897,15 +907,7 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
                     if (input->multiline) {
                         insert_codepoint(input, '\n');
                     } else {
-                        char *line = strdup(input->text);
-                        tui_textinput_clear(input);
-                        input->history_pos = -1;
-                        if (input->saved_input) {
-                            free(input->saved_input);
-                            input->saved_input = NULL;
-                        }
-                        free(snap_text);
-                        return tui_update_result(tui_cmd_line_submit(line));
+                        return line_submit(input);
                     }
                 } else if (key.rune == 'k' || key.rune == 'K') {
                     /* Ctrl+K: Kill to end of line */
@@ -994,9 +996,7 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
                         insert_text(input, input->kill_buf, input->kill_buf_len);
                     }
                 } else if (key.rune == '_') {
-                    /* Ctrl+_: Undo — discard snapshot so the undo itself isn't undoable
-                     */
-                    free(snap_text);
+                    /* Ctrl+_: Undo */
                     undo_pop(input);
                     return tui_update_result_none();
                 }
@@ -1010,7 +1010,7 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         break;
     }
 
-    undo_commit(input, snap_text, snap_len, snap_cursor);
+    undo_commit(input);
     return tui_update_result_none();
 }
 
@@ -1031,6 +1031,26 @@ static void render_divider_inline(DynamicBuffer *out, int width,
         dynamic_buffer_append_str(out, line_char);
     }
     dynamic_buffer_append_str(out, SGR_RESET);
+}
+
+/* Render prompt and visible text slice to output buffer */
+static void render_prompt_and_text(const TuiTextInput *input, DynamicBuffer *out)
+{
+    if (input->show_prompt && input->prompt && input->prompt_len > 0) {
+        dynamic_buffer_append_str(out, input->prompt);
+    }
+    if (input->text_len > 0) {
+        if (input->terminal_width > 0 && input->offset_right > input->offset) {
+            size_t byte_start =
+                utf8_byte_offset_of_cp(input->text, input->text_len, input->offset);
+            size_t byte_end = utf8_byte_offset_of_cp(input->text, input->text_len,
+                                                     input->offset_right);
+            dynamic_buffer_append(out, input->text + byte_start,
+                                  byte_end - byte_start);
+        } else {
+            dynamic_buffer_append(out, input->text, input->text_len);
+        }
+    }
 }
 
 /* Render text input to output buffer
@@ -1078,24 +1098,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
             dynamic_buffer_append_str(out, pos_buf);
             dynamic_buffer_append_str(out, EL_TO_END);
 
-            /* Output prompt if set and shown */
-            if (input->show_prompt && input->prompt && input->prompt_len > 0) {
-                dynamic_buffer_append_str(out, input->prompt);
-            }
-
-            /* Output text content (visible slice only for horizontal scroll) */
-            if (input->text_len > 0) {
-                if (input->terminal_width > 0 && input->offset_right > input->offset) {
-                    size_t byte_start = utf8_byte_offset_of_cp(
-                        input->text, input->text_len, input->offset);
-                    size_t byte_end = utf8_byte_offset_of_cp(input->text, input->text_len,
-                                                             input->offset_right);
-                    dynamic_buffer_append(out, input->text + byte_start,
-                                          byte_end - byte_start);
-                } else {
-                    dynamic_buffer_append(out, input->text, input->text_len);
-                }
-            }
+            render_prompt_and_text(input, out);
 
             if (input->show_dividers) {
                 /* Bottom divider (row + 1) */
@@ -1125,24 +1128,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
             dynamic_buffer_append_str(out, "\r");
             dynamic_buffer_append_str(out, EL_TO_END);
 
-            /* Output prompt if set and shown */
-            if (input->show_prompt && input->prompt && input->prompt_len > 0) {
-                dynamic_buffer_append_str(out, input->prompt);
-            }
-
-            /* Output text content (visible slice only for horizontal scroll) */
-            if (input->text_len > 0) {
-                if (input->terminal_width > 0 && input->offset_right > input->offset) {
-                    size_t byte_start = utf8_byte_offset_of_cp(
-                        input->text, input->text_len, input->offset);
-                    size_t byte_end = utf8_byte_offset_of_cp(input->text, input->text_len,
-                                                             input->offset_right);
-                    dynamic_buffer_append(out, input->text + byte_start,
-                                          byte_end - byte_start);
-                } else {
-                    dynamic_buffer_append(out, input->text, input->text_len);
-                }
-            }
+            render_prompt_and_text(input, out);
 
             /* Position cursor */
             if (input->focused) {
@@ -1458,7 +1444,7 @@ void tui_textinput_set_prompt(TuiTextInput *input, const char *prompt)
     if (!input)
         return;
     input->prompt = prompt;
-    input->prompt_len = prompt ? utf8_display_width(prompt) : 0;
+    input->prompt_len = prompt ? utf8_codepoint_count(prompt, strlen(prompt)) : 0;
 }
 
 /* Set whether to show dividers above/below the input */

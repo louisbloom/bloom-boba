@@ -65,6 +65,13 @@ typedef struct TuiTextInput {
   int undo_count;
   int undo_cap;
   int ctrl_x_prefix;       /* Waiting for second key after C-x */
+
+  /* Pre-edit snapshot buffer (reused across keystrokes) */
+  char *snap_buf;
+  size_t snap_buf_cap;
+  size_t snap_len;
+  size_t snap_cursor;
+  int snap_valid;            /* Whether snapshot should be committed */
 } TuiTextInput;
 
 /* Configuration for creating text input */
