@@ -383,11 +383,12 @@ In C, we use callbacks for pragmatism:
 ### Why No Subscriptions?
 
 Elm has a `subscriptions : Model -> Sub Msg` function for external event sources.
-bloom-boba defers this complexity:
+bloom-boba doesn't need a formal subscriptions system because the same use cases are
+covered by simpler mechanisms:
 
-- Terminal apps typically need few subscriptions (timers, window resize)
-- The runtime's event loop handles window resize and provides tick/external FD callbacks
-- If needed, subscriptions could be added later without breaking the API
+- The runtime handles window resize and provides tick/external FD callbacks
+- `tui_runtime_post()` lets any external code (signal handlers, callbacks, timers) inject
+  messages into the event loop, covering the primary subscription use case
 
 ### Input Parsing
 
