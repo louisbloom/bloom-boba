@@ -1040,7 +1040,11 @@ static void render_divider_inline(DynamicBuffer *out, int width,
 static void render_prompt_and_text(const TuiTextInput *input, DynamicBuffer *out)
 {
     if (input->show_prompt && input->prompt && input->prompt_len > 0) {
+        if (input->prompt_color[0] != '\0')
+            dynamic_buffer_append_str(out, input->prompt_color);
         dynamic_buffer_append_str(out, input->prompt);
+        if (input->prompt_color[0] != '\0')
+            dynamic_buffer_append_str(out, SGR_RESET);
     }
     if (input->text_len > 0) {
         if (input->terminal_width > 0 && input->offset_right > input->offset) {
@@ -1176,7 +1180,11 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
                 /* Prompt or indentation */
                 if (current_line == 0 && input->show_prompt && input->prompt &&
                     input->prompt_len > 0) {
+                    if (input->prompt_color[0] != '\0')
+                        dynamic_buffer_append_str(out, input->prompt_color);
                     dynamic_buffer_append_str(out, input->prompt);
+                    if (input->prompt_color[0] != '\0')
+                        dynamic_buffer_append_str(out, SGR_RESET);
                 } else if (current_line > 0 && input->show_prompt && input->prompt &&
                            input->prompt_len > 0) {
                     for (int j = 0; j < input->prompt_len; j++) {
@@ -1218,7 +1226,11 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
         /* Multi-line mode: relative positioning (legacy) */
         /* Output prompt if set and shown */
         if (input->show_prompt && input->prompt && input->prompt_len > 0) {
+            if (input->prompt_color[0] != '\0')
+                dynamic_buffer_append_str(out, input->prompt_color);
             dynamic_buffer_append_str(out, input->prompt);
+            if (input->prompt_color[0] != '\0')
+                dynamic_buffer_append_str(out, SGR_RESET);
         }
 
         /* Output text content */
@@ -1467,6 +1479,17 @@ void tui_textinput_set_divider_color(TuiTextInput *input, const char *color)
                  color);
     } else {
         input->divider_color[0] = '\0';
+    }
+}
+
+void tui_textinput_set_prompt_color(TuiTextInput *input, const char *color)
+{
+    if (!input)
+        return;
+    if (color && color[0] != '\0') {
+        snprintf(input->prompt_color, sizeof(input->prompt_color), "%s", color);
+    } else {
+        input->prompt_color[0] = '\0';
     }
 }
 

@@ -44,6 +44,7 @@ typedef struct TuiTextInput {
   int terminal_width;      /* Terminal width for divider rendering (0 = 80) */
   int terminal_row;        /* Row for absolute positioning (1-indexed, 0 = not set) */
   char divider_color[32];  /* Custom ANSI color for dividers (empty = SGR_DIM) */
+  char prompt_color[32];   /* Custom ANSI color for prompt (empty = no color) */
 
   /* History management */
   char **history;      /* Array of past input lines */
@@ -179,6 +180,12 @@ void tui_textinput_set_terminal_row(TuiTextInput *input, int row);
  * Pass NULL or "" to reset to default (SGR_DIM).
  */
 void tui_textinput_set_divider_color(TuiTextInput *input, const char *color);
+
+/* Set custom ANSI color escape sequence for the prompt.
+ * Pass an ANSI SGR sequence (e.g., "\033[38;2;255;6;183m").
+ * Pass NULL or "" to reset to default (no color).
+ */
+void tui_textinput_set_prompt_color(TuiTextInput *input, const char *color);
 
 /* Get render height in rows (includes dividers if enabled)
  * Returns 1 for the input line itself, +2 if show_dividers is enabled.
