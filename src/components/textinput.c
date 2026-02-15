@@ -10,6 +10,14 @@
 #define TEXTINPUT_INITIAL_CAP 256
 #define TEXTINPUT_TYPE_ID     (TUI_COMPONENT_TYPE_BASE + 1)
 
+/* Check if a character is a word character */
+static int is_word_char(const TuiTextInput *input, char c)
+{
+    if (input->word_chars)
+        return strchr(input->word_chars, c) != NULL;
+    return c != ' ' && c != '\t'; /* fallback when word_chars not set */
+}
+
 /* UTF-8 helper: Get byte length of UTF-8 character starting at ptr */
 static int utf8_char_len(const char *ptr)
 {
@@ -281,13 +289,12 @@ static void cursor_word_left(TuiTextInput *input)
 
     size_t pos = input->cursor_byte;
 
-    /* Skip whitespace before the word */
-    while (pos > 0 &&
-           (input->text[pos - 1] == ' ' || input->text[pos - 1] == '\t'))
+    /* Skip non-word characters before the word */
+    while (pos > 0 && !is_word_char(input, input->text[pos - 1]))
         pos--;
 
     /* Skip the word itself */
-    while (pos > 0 && input->text[pos - 1] != ' ' && input->text[pos - 1] != '\t')
+    while (pos > 0 && is_word_char(input, input->text[pos - 1]))
         pos--;
 
     input->cursor_byte = pos;
@@ -303,13 +310,11 @@ static void cursor_word_right(TuiTextInput *input)
     size_t pos = input->cursor_byte;
 
     /* Skip the current word */
-    while (pos < input->text_len && input->text[pos] != ' ' &&
-           input->text[pos] != '\t')
+    while (pos < input->text_len && is_word_char(input, input->text[pos]))
         pos++;
 
-    /* Skip whitespace after the word */
-    while (pos < input->text_len &&
-           (input->text[pos] == ' ' || input->text[pos] == '\t'))
+    /* Skip non-word characters after the word */
+    while (pos < input->text_len && !is_word_char(input, input->text[pos]))
         pos++;
 
     input->cursor_byte = pos;
@@ -714,8 +719,8 @@ TuiTextInput *tui_textinput_create(const TuiTextInputConfig *config)
     input->show_prompt = 1;  /* Show prompt by default */
     input->history_pos = -1; /* -1 means we're at current input */
 
-    /* Default word delimiters for tab completion */
-    input->word_delimiters = strdup(" \t");
+    /* No word_chars set by default — is_word_char falls back to non-whitespace */
+    input->word_chars = NULL;
 
     /* Apply config if provided */
     if (config) {
@@ -747,7 +752,7 @@ void tui_textinput_free(TuiTextInput *input)
         free(input->history);
     }
     free(input->kill_buf);
-    free(input->word_delimiters);
+    free(input->word_chars);
     free(input->snap_buf);
     undo_free(input);
     free(input);
@@ -833,10 +838,10 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
 
     case TUI_KEY_TAB:
     {
-        /* Find word start by scanning backward from cursor for delimiters */
+        /* Find word start by scanning backward from cursor for non-word chars */
         int word_start = (int)input->cursor_byte;
         while (word_start > 0 &&
-               !strchr(input->word_delimiters, input->text[word_start - 1])) {
+               is_word_char(input, input->text[word_start - 1])) {
             word_start--;
         }
         int prefix_len = (int)input->cursor_byte - word_start;
@@ -967,13 +972,11 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
                     /* Ctrl+W: Kill word backward */
                     if (input->cursor_byte > 0) {
                         size_t pos = input->cursor_byte;
-                        /* Skip whitespace backward */
-                        while (pos > 0 && (input->text[pos - 1] == ' ' ||
-                                           input->text[pos - 1] == '\t'))
+                        /* Skip non-word characters backward */
+                        while (pos > 0 && !is_word_char(input, input->text[pos - 1]))
                             pos--;
                         /* Skip word backward */
-                        while (pos > 0 && input->text[pos - 1] != ' ' &&
-                               input->text[pos - 1] != '\t')
+                        while (pos > 0 && is_word_char(input, input->text[pos - 1]))
                             pos--;
                         if (pos < input->cursor_byte) {
                             size_t del_len = input->cursor_byte - pos;
@@ -1421,14 +1424,13 @@ void tui_textinput_insert_completion(TuiTextInput *input, int word_start,
     replace_word(input, word_start, old_len, word);
 }
 
-/* Set characters treated as word boundaries for tab completion */
-void tui_textinput_set_word_delimiters(TuiTextInput *input,
-                                       const char *delimiters)
+/* Set characters that form words for tab completion and word movement */
+void tui_textinput_set_word_chars(TuiTextInput *input, const char *chars)
 {
     if (!input)
         return;
-    free(input->word_delimiters);
-    input->word_delimiters = strdup(delimiters ? delimiters : " \t");
+    free(input->word_chars);
+    input->word_chars = chars ? strdup(chars) : NULL;
 }
 
 /* Set whether to show the prompt */

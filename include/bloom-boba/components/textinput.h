@@ -53,7 +53,7 @@ typedef struct TuiTextInput {
   char *saved_input;   /* Saved current input when navigating history */
 
   /* Tab completion */
-  char *word_delimiters;           /* Characters treated as word boundaries for completion */
+  char *word_chars;                /* Characters that form words for completion and word movement */
 
   /* Kill/yank buffer */
   char *kill_buf;          /* Killed text (malloc'd, NULL initially) */
@@ -151,10 +151,10 @@ void tui_textinput_history_add(TuiTextInput *input, const char *line);
 void tui_textinput_insert_completion(TuiTextInput *input, int word_start,
                                      const char *word);
 
-/* Set characters treated as word boundaries for tab completion.
- * Default is " \t". Pass NULL to reset to default. */
-void tui_textinput_set_word_delimiters(TuiTextInput *input,
-                                       const char *delimiters);
+/* Set characters that form words for tab completion and word movement.
+ * When set, only these characters are considered part of a word.
+ * Pass NULL to use default behavior (non-whitespace = word). */
+void tui_textinput_set_word_chars(TuiTextInput *input, const char *chars);
 
 /* Set whether to show the prompt */
 void tui_textinput_set_show_prompt(TuiTextInput *input, int show);
