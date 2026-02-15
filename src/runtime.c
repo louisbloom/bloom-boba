@@ -7,6 +7,7 @@
 
 #ifndef _WIN32
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
@@ -14,6 +15,7 @@
 #endif
 
 #define MAX_MSGS_PER_FRAME 64
+#define QUEUE_INITIAL_CAP  16
 
 /* --- Signal handling (Unix only) --- */
 #ifndef _WIN32
@@ -152,6 +154,28 @@ TuiRuntime *tui_runtime_create(TuiComponent *component, void *component_config,
     runtime->running = 1;
     runtime->quit_requested = 0;
 
+    /* Initialize message queue */
+    runtime->msg_queue =
+        (TuiMsg *)malloc(QUEUE_INITIAL_CAP * sizeof(TuiMsg));
+    runtime->msg_queue_count = 0;
+    runtime->msg_queue_cap = runtime->msg_queue ? QUEUE_INITIAL_CAP : 0;
+
+    /* Initialize command queue */
+    runtime->cmd_queue =
+        (TuiCmd **)malloc(QUEUE_INITIAL_CAP * sizeof(TuiCmd *));
+    runtime->cmd_queue_count = 0;
+    runtime->cmd_queue_cap = runtime->cmd_queue ? QUEUE_INITIAL_CAP : 0;
+
+    /* Create self-pipe for waking select() */
+    runtime->wakeup_pipe[0] = -1;
+    runtime->wakeup_pipe[1] = -1;
+#ifndef _WIN32
+    if (pipe(runtime->wakeup_pipe) == 0) {
+        fcntl(runtime->wakeup_pipe[0], F_SETFL, O_NONBLOCK);
+        fcntl(runtime->wakeup_pipe[1], F_SETFL, O_NONBLOCK);
+    }
+#endif
+
     /* Execute initial command if provided (Elm Architecture) */
     if (init_result.cmd) {
         execute_cmd(runtime, init_result.cmd);
@@ -174,6 +198,22 @@ void tui_runtime_free(TuiRuntime *runtime)
 
     if (runtime->model && runtime->component)
         runtime->component->free(runtime->model);
+
+    /* Free unprocessed commands in cmd_queue */
+    for (int i = 0; i < runtime->cmd_queue_count; i++)
+        tui_cmd_free(runtime->cmd_queue[i]);
+    free(runtime->cmd_queue);
+
+    /* Free message queue */
+    free(runtime->msg_queue);
+
+    /* Close wakeup pipe */
+#ifndef _WIN32
+    if (runtime->wakeup_pipe[0] >= 0)
+        close(runtime->wakeup_pipe[0]);
+    if (runtime->wakeup_pipe[1] >= 0)
+        close(runtime->wakeup_pipe[1]);
+#endif
 
     free(runtime);
 }
@@ -443,6 +483,146 @@ void tui_runtime_exec(TuiRuntime *runtime, TuiCmd *cmd)
     execute_cmd(runtime, cmd);
 }
 
+/* --- Self-pipe helpers --- */
+
+static void runtime_wakeup(TuiRuntime *rt)
+{
+#ifndef _WIN32
+    if (rt->wakeup_pipe[1] >= 0) {
+        char c = 'W';
+        while (write(rt->wakeup_pipe[1], &c, 1) < 0 && errno == EINTR)
+            ;
+        /* EAGAIN is fine — pipe already has data, select will fire */
+    }
+#endif
+}
+
+static void runtime_drain_wakeup(TuiRuntime *rt)
+{
+#ifndef _WIN32
+    if (rt->wakeup_pipe[0] >= 0) {
+        char buf[64];
+        while (read(rt->wakeup_pipe[0], buf, sizeof(buf)) > 0)
+            ;
+    }
+#endif
+}
+
+/* --- Message/Command scheduling API --- */
+
+/* Post a message to be processed on the next event loop iteration */
+void tui_runtime_post(TuiRuntime *runtime, TuiMsg msg)
+{
+    if (!runtime)
+        return;
+
+    /* Grow queue if full */
+    if (runtime->msg_queue_count >= runtime->msg_queue_cap) {
+        int new_cap =
+            runtime->msg_queue_cap ? runtime->msg_queue_cap * 2 : QUEUE_INITIAL_CAP;
+        TuiMsg *new_buf =
+            (TuiMsg *)realloc(runtime->msg_queue, new_cap * sizeof(TuiMsg));
+        if (!new_buf)
+            return; /* OOM — drop the message */
+        runtime->msg_queue = new_buf;
+        runtime->msg_queue_cap = new_cap;
+    }
+
+    runtime->msg_queue[runtime->msg_queue_count++] = msg;
+    runtime_wakeup(runtime);
+}
+
+/* Schedule a command to be executed on the next event loop iteration */
+void tui_runtime_schedule(TuiRuntime *runtime, TuiCmd *cmd)
+{
+    if (!runtime || !cmd)
+        return;
+
+    /* Grow queue if full */
+    if (runtime->cmd_queue_count >= runtime->cmd_queue_cap) {
+        int new_cap =
+            runtime->cmd_queue_cap ? runtime->cmd_queue_cap * 2 : QUEUE_INITIAL_CAP;
+        TuiCmd **new_buf = (TuiCmd **)realloc(runtime->cmd_queue,
+                                              new_cap * sizeof(TuiCmd *));
+        if (!new_buf) {
+            tui_cmd_free(cmd); /* OOM — free the command we own */
+            return;
+        }
+        runtime->cmd_queue = new_buf;
+        runtime->cmd_queue_cap = new_cap;
+    }
+
+    runtime->cmd_queue[runtime->cmd_queue_count++] = cmd;
+    runtime_wakeup(runtime);
+}
+
+/* Process all pending queued commands and messages (swap-and-drain) */
+void tui_runtime_drain(TuiRuntime *runtime)
+{
+    if (!runtime)
+        return;
+
+    runtime_drain_wakeup(runtime);
+
+    for (;;) {
+        /* Snapshot and swap command queue */
+        TuiCmd **snap_cmds = NULL;
+        int snap_cmd_count = 0;
+
+        if (runtime->cmd_queue_count > 0) {
+            snap_cmds = runtime->cmd_queue;
+            snap_cmd_count = runtime->cmd_queue_count;
+
+            /* Install fresh empty queue */
+            runtime->cmd_queue =
+                (TuiCmd **)malloc(QUEUE_INITIAL_CAP * sizeof(TuiCmd *));
+            runtime->cmd_queue_count = 0;
+            runtime->cmd_queue_cap =
+                runtime->cmd_queue ? QUEUE_INITIAL_CAP : 0;
+        }
+
+        /* Snapshot and swap message queue */
+        TuiMsg *snap_msgs = NULL;
+        int snap_msg_count = 0;
+
+        if (runtime->msg_queue_count > 0) {
+            snap_msgs = runtime->msg_queue;
+            snap_msg_count = runtime->msg_queue_count;
+
+            /* Install fresh empty queue */
+            runtime->msg_queue =
+                (TuiMsg *)malloc(QUEUE_INITIAL_CAP * sizeof(TuiMsg));
+            runtime->msg_queue_count = 0;
+            runtime->msg_queue_cap =
+                runtime->msg_queue ? QUEUE_INITIAL_CAP : 0;
+        }
+
+        /* Nothing to process — done */
+        if (snap_cmd_count == 0 && snap_msg_count == 0)
+            break;
+
+        /* Execute commands first (direct side effects) */
+        for (int i = 0; i < snap_cmd_count; i++)
+            execute_cmd(runtime, snap_cmds[i]);
+        free(snap_cmds);
+
+        /* Process messages through update() */
+        for (int i = 0; i < snap_msg_count; i++)
+            tui_runtime_send(runtime, snap_msgs[i]);
+        free(snap_msgs);
+
+        /* Loop again if processing enqueued more items */
+    }
+}
+
+/* Get the wakeup FD for use with select()/poll() */
+int tui_runtime_wakeup_fd(TuiRuntime *runtime)
+{
+    if (!runtime)
+        return -1;
+    return runtime->wakeup_pipe[0];
+}
+
 /* Run the full event loop (blocking). Owns raw mode, signals, select().
  * Returns 0 on normal exit, -1 on error. */
 int tui_runtime_run(TuiRuntime *runtime)
@@ -506,7 +686,7 @@ int tui_runtime_run(TuiRuntime *runtime)
             tui_runtime_flush(runtime);
         }
 
-        /* Build fd_set: stdin + optional external FD */
+        /* Build fd_set: stdin + optional external FD + wakeup pipe */
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(STDIN_FILENO, &read_fds);
@@ -521,6 +701,12 @@ int tui_runtime_run(TuiRuntime *runtime)
                 if (ext_fd > max_fd)
                     max_fd = ext_fd;
             }
+        }
+
+        if (runtime->wakeup_pipe[0] >= 0) {
+            FD_SET(runtime->wakeup_pipe[0], &read_fds);
+            if (runtime->wakeup_pipe[0] > max_fd)
+                max_fd = runtime->wakeup_pipe[0];
         }
 
         /* 100ms tick timeout */
@@ -555,6 +741,13 @@ int tui_runtime_run(TuiRuntime *runtime)
         if (ready > 0 && ext_fd >= 0 && FD_ISSET(ext_fd, &read_fds)) {
             if (runtime->config.on_external_ready)
                 runtime->config.on_external_ready(runtime->config.event_data);
+        }
+
+        /* Wakeup pipe ready — drain queued messages/commands */
+        if (ready > 0 && runtime->wakeup_pipe[0] >= 0 &&
+            FD_ISSET(runtime->wakeup_pipe[0], &read_fds)) {
+            tui_runtime_drain(runtime);
+            tui_runtime_flush(runtime);
         }
 
         /* Tick (timeout) */

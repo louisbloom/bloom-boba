@@ -78,6 +78,45 @@ tui_runtime_flush(rt);                        /* Render + write */
 tui_runtime_stop(rt);                         /* Restore terminal */
 ```
 
+### Message and Command Scheduling
+
+External code (callbacks, signal handlers, other modules) can schedule work for the
+event loop to process on its next iteration, following Bubbletea's `p.Send(msg)` pattern.
+
+**Posting messages** — goes through the full Elm Architecture cycle (`update()` → command execution):
+
+```c
+/* From a callback, signal handler, or another thread's context */
+TuiMsg msg = tui_msg_custom(MY_MSG_TYPE, my_data);
+tui_runtime_post(rt, msg);  /* Wakes up select() immediately */
+```
+
+**Scheduling commands** — executed directly, bypassing `update()`:
+
+```c
+TuiCmd *cmd = tui_cmd_set_window_title("New Title");
+tui_runtime_schedule(rt, cmd);  /* Runtime takes ownership */
+```
+
+When using `tui_runtime_run()`, queued items are drained automatically each iteration.
+
+For lower-level usage where the caller owns the event loop, add the wakeup FD to your
+`select()`/`poll()` and call `tui_runtime_drain()` when it becomes readable:
+
+```c
+int wakeup_fd = tui_runtime_wakeup_fd(rt);  /* -1 if unavailable */
+
+/* In your select() loop: */
+if (wakeup_fd >= 0)
+    FD_SET(wakeup_fd, &read_fds);
+
+/* After select() returns: */
+if (wakeup_fd >= 0 && FD_ISSET(wakeup_fd, &read_fds)) {
+    tui_runtime_drain(rt);
+    tui_runtime_flush(rt);
+}
+```
+
 ## Example
 
 ```c

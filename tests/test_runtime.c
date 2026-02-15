@@ -7,9 +7,14 @@
  */
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #include <bloom-boba/cmd.h>
 #include <bloom-boba/component.h>
@@ -394,6 +399,533 @@ static void test_runtime_run_immediate_quit(void)
 }
 #endif
 
+/* ========================================================================
+ * Tracking component — records custom messages it receives
+ * ======================================================================== */
+
+#define TRACK_MSG_TYPE (TUI_MSG_CUSTOM_BASE + 42)
+#define TRACK_MAX_MSGS 32
+
+typedef struct {
+    TuiModel base;
+    int received[TRACK_MAX_MSGS]; /* custom data values received */
+    int received_count;
+} TrackModel;
+
+static TuiInitResult track_init(void *config)
+{
+    (void)config;
+    TrackModel *m = calloc(1, sizeof(TrackModel));
+    m->base.type = 997;
+    return tui_init_result_none((TuiModel *)m);
+}
+
+static TuiUpdateResult track_update(TuiModel *model, TuiMsg msg)
+{
+    TrackModel *m = (TrackModel *)model;
+    if (msg.type == TRACK_MSG_TYPE && m->received_count < TRACK_MAX_MSGS) {
+        m->received[m->received_count++] = (int)(intptr_t)msg.data.custom;
+    }
+    return tui_update_result_none();
+}
+
+static TuiComponent track_component = {
+    .init = track_init,
+    .update = track_update,
+    .view = test_view,
+    .free = test_free,
+};
+
+/* ========================================================================
+ * Reentrant component — posts a new message from its update handler
+ * ======================================================================== */
+
+static TuiRuntime *s_reentrant_runtime = NULL;
+
+#define REENTRANT_MSG_FIRST (TUI_MSG_CUSTOM_BASE + 100)
+#define REENTRANT_MSG_SECOND (TUI_MSG_CUSTOM_BASE + 101)
+
+typedef struct {
+    TuiModel base;
+    int first_received;
+    int second_received;
+} ReentrantModel;
+
+static TuiInitResult reentrant_init(void *config)
+{
+    (void)config;
+    ReentrantModel *m = calloc(1, sizeof(ReentrantModel));
+    m->base.type = 996;
+    return tui_init_result_none((TuiModel *)m);
+}
+
+static TuiUpdateResult reentrant_update(TuiModel *model, TuiMsg msg)
+{
+    ReentrantModel *m = (ReentrantModel *)model;
+    if (msg.type == REENTRANT_MSG_FIRST) {
+        m->first_received = 1;
+        /* Post a second message from within update */
+        TuiMsg second = tui_msg_custom(REENTRANT_MSG_SECOND, NULL);
+        tui_runtime_post(s_reentrant_runtime, second);
+    } else if (msg.type == REENTRANT_MSG_SECOND) {
+        m->second_received = 1;
+    }
+    return tui_update_result_none();
+}
+
+static TuiComponent reentrant_component = {
+    .init = reentrant_init,
+    .update = reentrant_update,
+    .view = test_view,
+    .free = test_free,
+};
+
+/* ========================================================================
+ * Command tracking — records when a custom command callback is executed
+ * ======================================================================== */
+
+static int s_cmd_callback_called = 0;
+static int s_cmd_callback_value = 0;
+
+static TuiMsg cmd_tracking_callback(void *data)
+{
+    s_cmd_callback_called = 1;
+    s_cmd_callback_value = (int)(intptr_t)data;
+    return tui_msg_none();
+}
+
+/* ========================================================================
+ * Scheduling API tests
+ * ======================================================================== */
+
+/* Test that queues are initialized on create */
+static void test_queue_initialized(void)
+{
+    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    assert(rt->msg_queue != NULL);
+    assert(rt->msg_queue_count == 0);
+    assert(rt->msg_queue_cap == 16);
+
+    assert(rt->cmd_queue != NULL);
+    assert(rt->cmd_queue_count == 0);
+    assert(rt->cmd_queue_cap == 16);
+
+    tui_runtime_free(rt);
+}
+
+/* Test that wakeup pipe is created */
+static void test_wakeup_pipe_created(void)
+{
+    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+
+#ifndef _WIN32
+    assert(rt->wakeup_pipe[0] >= 0);
+    assert(rt->wakeup_pipe[1] >= 0);
+    assert(tui_runtime_wakeup_fd(rt) == rt->wakeup_pipe[0]);
+#endif
+
+    tui_runtime_free(rt);
+}
+
+/* Test wakeup_fd with NULL runtime */
+static void test_wakeup_fd_null(void)
+{
+    assert(tui_runtime_wakeup_fd(NULL) == -1);
+}
+
+/* Test post + drain delivers message through update */
+static void test_post_and_drain(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    TrackModel *m = (TrackModel *)tui_runtime_model(rt);
+    assert(m->received_count == 0);
+
+    /* Post a custom message */
+    TuiMsg msg = tui_msg_custom(TRACK_MSG_TYPE, (void *)(intptr_t)7);
+    tui_runtime_post(rt, msg);
+
+    /* Queue should have one item */
+    assert(rt->msg_queue_count == 1);
+
+    /* Drain processes it through update */
+    tui_runtime_drain(rt);
+
+    assert(m->received_count == 1);
+    assert(m->received[0] == 7);
+    assert(rt->msg_queue_count == 0);
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test schedule + drain executes command */
+static void test_schedule_and_drain(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    s_cmd_callback_called = 0;
+    s_cmd_callback_value = 0;
+
+    /* Schedule a custom command */
+    TuiCmd *cmd =
+        tui_cmd_custom(cmd_tracking_callback, (void *)(intptr_t)42, NULL);
+    tui_runtime_schedule(rt, cmd);
+
+    assert(rt->cmd_queue_count == 1);
+
+    tui_runtime_drain(rt);
+
+    assert(s_cmd_callback_called == 1);
+    assert(s_cmd_callback_value == 42);
+    assert(rt->cmd_queue_count == 0);
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test drain with empty queues is a no-op */
+static void test_drain_empty(void)
+{
+    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    /* Should not crash */
+    tui_runtime_drain(rt);
+    assert(rt->msg_queue_count == 0);
+    assert(rt->cmd_queue_count == 0);
+
+    tui_runtime_free(rt);
+}
+
+/* Test drain with NULL runtime is safe */
+static void test_drain_null(void)
+{
+    /* Should not crash */
+    tui_runtime_drain(NULL);
+}
+
+/* Test post with NULL runtime is safe */
+static void test_post_null(void)
+{
+    TuiMsg msg = tui_msg_none();
+    tui_runtime_post(NULL, msg);
+}
+
+/* Test schedule with NULL runtime or NULL cmd is safe */
+static void test_schedule_null(void)
+{
+    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    /* NULL runtime */
+    tui_runtime_schedule(NULL, tui_cmd_quit());
+
+    /* NULL cmd */
+    tui_runtime_schedule(rt, NULL);
+    assert(rt->cmd_queue_count == 0);
+
+    tui_runtime_free(rt);
+}
+
+/* Test multiple posts are drained in order */
+static void test_post_ordering(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    TrackModel *m = (TrackModel *)tui_runtime_model(rt);
+
+    /* Post several messages */
+    for (int i = 0; i < 5; i++) {
+        TuiMsg msg = tui_msg_custom(TRACK_MSG_TYPE, (void *)(intptr_t)i);
+        tui_runtime_post(rt, msg);
+    }
+
+    assert(rt->msg_queue_count == 5);
+
+    tui_runtime_drain(rt);
+
+    assert(m->received_count == 5);
+    for (int i = 0; i < 5; i++) {
+        assert(m->received[i] == i);
+    }
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test reentrancy: posting a message from within update handler */
+static void test_post_reentrancy(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&reentrant_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    s_reentrant_runtime = rt;
+
+    ReentrantModel *m = (ReentrantModel *)tui_runtime_model(rt);
+    assert(m->first_received == 0);
+    assert(m->second_received == 0);
+
+    /* Post first message — its handler will post a second */
+    TuiMsg msg = tui_msg_custom(REENTRANT_MSG_FIRST, NULL);
+    tui_runtime_post(rt, msg);
+
+    tui_runtime_drain(rt);
+
+    /* Both messages should have been processed */
+    assert(m->first_received == 1);
+    assert(m->second_received == 1);
+
+    s_reentrant_runtime = NULL;
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test that commands execute before messages in a single drain */
+static void test_commands_before_messages(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    s_cmd_callback_called = 0;
+
+    /* Schedule a command and post a message */
+    TuiCmd *cmd =
+        tui_cmd_custom(cmd_tracking_callback, (void *)(intptr_t)99, NULL);
+    tui_runtime_schedule(rt, cmd);
+
+    TuiMsg msg = tui_msg_custom(TRACK_MSG_TYPE, (void *)(intptr_t)1);
+    tui_runtime_post(rt, msg);
+
+    /* Both are pending */
+    assert(rt->cmd_queue_count == 1);
+    assert(rt->msg_queue_count == 1);
+
+    tui_runtime_drain(rt);
+
+    /* Both should be processed */
+    assert(s_cmd_callback_called == 1);
+    TrackModel *m = (TrackModel *)tui_runtime_model(rt);
+    assert(m->received_count == 1);
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test that queue grows beyond initial capacity */
+static void test_queue_growth(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    /* Post more messages than initial capacity (16) */
+    for (int i = 0; i < 20; i++) {
+        TuiMsg msg = tui_msg_custom(TRACK_MSG_TYPE, (void *)(intptr_t)i);
+        tui_runtime_post(rt, msg);
+    }
+
+    assert(rt->msg_queue_count == 20);
+    assert(rt->msg_queue_cap >= 20);
+
+    tui_runtime_drain(rt);
+
+    TrackModel *m = (TrackModel *)tui_runtime_model(rt);
+    assert(m->received_count == 20);
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test that scheduled quit command works through drain */
+static void test_schedule_quit(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+    assert(rt->running == 1);
+
+    tui_runtime_schedule(rt, tui_cmd_quit());
+    tui_runtime_drain(rt);
+
+    assert(rt->running == 0);
+    assert(rt->quit_requested == 1);
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+/* Test that unprocessed commands are freed on runtime_free (no leak) */
+static void test_free_with_pending_commands(void)
+{
+    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    /* Schedule commands but don't drain — free should clean them up */
+    tui_runtime_schedule(rt, tui_cmd_set_window_title("title1"));
+    tui_runtime_schedule(rt, tui_cmd_set_window_title("title2"));
+    assert(rt->cmd_queue_count == 2);
+
+    /* This should free the pending commands without leaking */
+    tui_runtime_free(rt);
+}
+
+/* Test double drain — second drain should be a no-op */
+static void test_double_drain(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
+    assert(rt != NULL);
+
+    TuiMsg msg = tui_msg_custom(TRACK_MSG_TYPE, (void *)(intptr_t)1);
+    tui_runtime_post(rt, msg);
+
+    tui_runtime_drain(rt);
+
+    TrackModel *m = (TrackModel *)tui_runtime_model(rt);
+    assert(m->received_count == 1);
+
+    /* Second drain — nothing new */
+    tui_runtime_drain(rt);
+    assert(m->received_count == 1);
+
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+
+#ifndef _WIN32
+/* Test that post wakes up the event loop via the wakeup pipe.
+ * Uses a component that quits when it receives the custom message. */
+
+#define WAKEUP_MSG_TYPE (TUI_MSG_CUSTOM_BASE + 200)
+
+typedef struct {
+    TuiModel base;
+    int got_wakeup;
+} WakeupModel;
+
+static TuiInitResult wakeup_init(void *config)
+{
+    (void)config;
+    WakeupModel *m = calloc(1, sizeof(WakeupModel));
+    m->base.type = 995;
+    return tui_init_result_none((TuiModel *)m);
+}
+
+static TuiUpdateResult wakeup_update(TuiModel *model, TuiMsg msg)
+{
+    WakeupModel *m = (WakeupModel *)model;
+    if (msg.type == WAKEUP_MSG_TYPE) {
+        m->got_wakeup = 1;
+        return tui_update_result(tui_cmd_quit());
+    }
+    return tui_update_result_none();
+}
+
+static TuiComponent wakeup_component = {
+    .init = wakeup_init,
+    .update = wakeup_update,
+    .view = test_view,
+    .free = test_free,
+};
+
+/* Test tui_runtime_run integration: post from on_tick callback */
+static int s_tick_post_done = 0;
+static TuiRuntime *s_tick_runtime = NULL;
+
+static void tick_post_callback(void *data)
+{
+    (void)data;
+    if (!s_tick_post_done) {
+        s_tick_post_done = 1;
+        TuiMsg msg = tui_msg_custom(WAKEUP_MSG_TYPE, NULL);
+        tui_runtime_post(s_tick_runtime, msg);
+    }
+}
+
+static void test_post_wakes_event_loop(void)
+{
+    FILE *devnull = fopen("/dev/null", "w");
+    assert(devnull != NULL);
+
+    /* Replace stdin with a pipe so it doesn't EOF under make check */
+    int stdin_pipe[2];
+    assert(pipe(stdin_pipe) == 0);
+    int orig_stdin = dup(STDIN_FILENO);
+    dup2(stdin_pipe[0], STDIN_FILENO);
+
+    s_tick_post_done = 0;
+
+    TuiRuntimeConfig cfg = {
+        .raw_mode = 0,
+        .output = devnull,
+        .on_tick = tick_post_callback,
+    };
+
+    TuiRuntime *rt = tui_runtime_create(&wakeup_component, NULL, &cfg);
+    assert(rt != NULL);
+    s_tick_runtime = rt;
+
+    /* Run — on_tick fires after 100ms, posts a message, wakeup pipe
+     * fires, drain processes it, component quits */
+    int result = tui_runtime_run(rt);
+    assert(result == 0);
+
+    WakeupModel *m = (WakeupModel *)tui_runtime_model(rt);
+    assert(m->got_wakeup == 1);
+
+    /* Restore stdin */
+    dup2(orig_stdin, STDIN_FILENO);
+    close(orig_stdin);
+    close(stdin_pipe[0]);
+    close(stdin_pipe[1]);
+
+    s_tick_runtime = NULL;
+    tui_runtime_free(rt);
+    fclose(devnull);
+}
+#endif /* !_WIN32 */
+
 /* ======================================================================== */
 
 int main(void)
@@ -411,8 +943,28 @@ int main(void)
     RUN_TEST(test_window_size_message);
     RUN_TEST(test_runtime_quit);
     RUN_TEST(test_started_initially_zero);
+
+    /* Scheduling API tests */
+    RUN_TEST(test_queue_initialized);
+    RUN_TEST(test_wakeup_pipe_created);
+    RUN_TEST(test_wakeup_fd_null);
+    RUN_TEST(test_post_and_drain);
+    RUN_TEST(test_schedule_and_drain);
+    RUN_TEST(test_drain_empty);
+    RUN_TEST(test_drain_null);
+    RUN_TEST(test_post_null);
+    RUN_TEST(test_schedule_null);
+    RUN_TEST(test_post_ordering);
+    RUN_TEST(test_post_reentrancy);
+    RUN_TEST(test_commands_before_messages);
+    RUN_TEST(test_queue_growth);
+    RUN_TEST(test_schedule_quit);
+    RUN_TEST(test_free_with_pending_commands);
+    RUN_TEST(test_double_drain);
+
 #ifndef _WIN32
     RUN_TEST(test_runtime_run_immediate_quit);
+    RUN_TEST(test_post_wakes_event_loop);
 #endif
 
     printf("\n%d/%d tests passed.\n", tests_passed, tests_run);

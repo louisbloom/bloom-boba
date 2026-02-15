@@ -85,6 +85,19 @@ struct TuiRuntime {
   struct termios orig_termios; /* Saved terminal settings */
   int raw_mode_active;         /* Raw mode currently enabled */
 #endif
+
+  /* Message queue (for tui_runtime_post) */
+  TuiMsg *msg_queue;
+  int msg_queue_count;
+  int msg_queue_cap;
+
+  /* Command queue (for tui_runtime_schedule) */
+  TuiCmd **cmd_queue;
+  int cmd_queue_count;
+  int cmd_queue_cap;
+
+  /* Self-pipe for waking select() */
+  int wakeup_pipe[2]; /* [0]=read, [1]=write; -1 if unavailable */
 };
 
 /* Create runtime with component
@@ -160,5 +173,24 @@ int tui_runtime_run(TuiRuntime *runtime);
 /* Get current terminal dimensions */
 int tui_runtime_get_width(TuiRuntime *runtime);
 int tui_runtime_get_height(TuiRuntime *runtime);
+
+/* Post a message to be processed on the next event loop iteration.
+ * Goes through update() → cmd execution (full Elm Architecture cycle).
+ * Wakes up the event loop if blocked in select(). */
+void tui_runtime_post(TuiRuntime *runtime, TuiMsg msg);
+
+/* Schedule a command to be executed on the next event loop iteration.
+ * Executed directly via execute_cmd() (bypasses update).
+ * Runtime takes ownership of the command. */
+void tui_runtime_schedule(TuiRuntime *runtime, TuiCmd *cmd);
+
+/* Process all pending queued commands and messages.
+ * Called automatically by tui_runtime_run().
+ * Lower-level API users should call this in their own event loop. */
+void tui_runtime_drain(TuiRuntime *runtime);
+
+/* Get the wakeup FD for use with select()/poll().
+ * Returns -1 if unavailable. When readable, call tui_runtime_drain(). */
+int tui_runtime_wakeup_fd(TuiRuntime *runtime);
 
 #endif /* BLOOM_BOBA_RUNTIME_H */
