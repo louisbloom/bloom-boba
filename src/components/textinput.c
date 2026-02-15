@@ -1036,6 +1036,22 @@ static void render_divider_inline(DynamicBuffer *out, int width,
     dynamic_buffer_append_str(out, SGR_RESET);
 }
 
+/* Render continuation prompt or space-padding for lines after the first */
+static void render_continuation_prompt(const TuiTextInput *input,
+                                       DynamicBuffer *out)
+{
+    if (input->continuation_prompt && input->continuation_prompt_len > 0) {
+        if (input->prompt_color[0] != '\0')
+            dynamic_buffer_append_str(out, input->prompt_color);
+        dynamic_buffer_append_str(out, input->continuation_prompt);
+        if (input->prompt_color[0] != '\0')
+            dynamic_buffer_append_str(out, SGR_RESET);
+    } else {
+        for (int j = 0; j < input->prompt_len; j++)
+            dynamic_buffer_append(out, " ", 1);
+    }
+}
+
 /* Render prompt and visible text slice to output buffer */
 static void render_prompt_and_text(const TuiTextInput *input, DynamicBuffer *out)
 {
@@ -1187,9 +1203,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
                         dynamic_buffer_append_str(out, SGR_RESET);
                 } else if (current_line > 0 && input->show_prompt && input->prompt &&
                            input->prompt_len > 0) {
-                    for (int j = 0; j < input->prompt_len; j++) {
-                        dynamic_buffer_append(out, " ", 1);
-                    }
+                    render_continuation_prompt(input, out);
                 }
 
                 /* Line content */
@@ -1238,11 +1252,9 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
             for (size_t i = 0; i < input->text_len; i++) {
                 if (input->text[i] == '\n') {
                     dynamic_buffer_append_str(out, "\r\n");
-                    /* Add prompt indentation on continued lines */
+                    /* Add continuation prompt on continued lines */
                     if (input->show_prompt && input->prompt && input->prompt_len > 0) {
-                        for (int j = 0; j < input->prompt_len; j++) {
-                            dynamic_buffer_append(out, " ", 1);
-                        }
+                        render_continuation_prompt(input, out);
                     }
                 } else {
                     dynamic_buffer_append(out, &input->text[i], 1);
@@ -1459,6 +1471,17 @@ void tui_textinput_set_prompt(TuiTextInput *input, const char *prompt)
         return;
     input->prompt = prompt;
     input->prompt_len = prompt ? utf8_codepoint_count(prompt, strlen(prompt)) : 0;
+}
+
+/* Set the continuation prompt string */
+void tui_textinput_set_continuation_prompt(TuiTextInput *input,
+                                           const char *prompt)
+{
+    if (!input)
+        return;
+    input->continuation_prompt = prompt;
+    input->continuation_prompt_len =
+        prompt ? utf8_codepoint_count(prompt, strlen(prompt)) : 0;
 }
 
 /* Set whether to show dividers above/below the input */

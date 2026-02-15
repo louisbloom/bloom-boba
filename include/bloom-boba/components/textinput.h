@@ -36,6 +36,8 @@ typedef struct TuiTextInput {
 
   const char *prompt;  /* Optional prompt string (not owned) */
   int prompt_len;      /* Cached prompt display width */
+  const char *continuation_prompt; /* Prompt for continuation lines (not owned) */
+  int continuation_prompt_len;     /* Cached continuation prompt display width */
 
   int focused;         /* Whether component has focus */
   int multiline;       /* Allow multiple lines (Enter inserts newline) */
@@ -186,6 +188,13 @@ void tui_textinput_set_divider_color(TuiTextInput *input, const char *color);
  * Pass NULL or "" to reset to default (no color).
  */
 void tui_textinput_set_prompt_color(TuiTextInput *input, const char *color);
+
+/* Set the continuation prompt string (shown on lines after the first).
+ * Must have the same display width as the main prompt.
+ * Pass NULL to fall back to space-padding (default behavior).
+ */
+void tui_textinput_set_continuation_prompt(TuiTextInput *input,
+                                           const char *prompt);
 
 /* Get render height in rows (includes dividers if enabled)
  * Returns 1 for the input line itself, +2 if show_dividers is enabled.
