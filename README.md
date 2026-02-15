@@ -22,8 +22,9 @@ Like Bubbletea, bloom-boba has two parts:
 
 **Components** - Reusable UI building blocks:
 
-- `textinput` - Single-line text input with history, completion, Unicode support
+- `textinput` - Text input with history, completion, Unicode support, multi-line editing
 - `viewport` - Scrollable content area with software-based scrolling
+- `statusbar` - Status bar with mode indicator and notifications
 - `textview` - Simple text display (for basic use cases)
 
 ## Philosophy
@@ -52,11 +53,35 @@ Since C lacks garbage collection and sum types, bloom-boba makes pragmatic choic
 - **Tagged unions** — Messages use `enum` + `union` to simulate sum types
 - **Explicit memory** — Components provide `create` and `free` functions
 
+## Runtime
+
+The runtime can be used in two modes:
+
+**Bubbletea-style** — `tui_runtime_run()` owns the event loop, raw mode, and signal handling:
+
+```c
+TuiRuntime *rt = tui_runtime_create(&my_component, NULL);
+tui_runtime_run(rt);  /* Blocks until quit */
+tui_runtime_free(rt);
+```
+
+The runtime handles SIGWINCH (resize), SIGINT, stdin polling, and optional external FD
+polling via `TuiRuntimeConfig` callbacks (`on_tick`, `on_resize`, `get_external_fd`,
+`on_external_ready`, `on_stdin_processed`).
+
+**Lower-level** — caller owns the event loop, drives the runtime manually:
+
+```c
+tui_runtime_start(rt);                        /* Enter raw mode */
+tui_runtime_process_input(rt, buf, len);      /* Feed raw bytes */
+tui_runtime_flush(rt);                        /* Render + write */
+tui_runtime_stop(rt);                         /* Restore terminal */
+```
+
 ## Example
 
 ```c
 #include <bloom-boba/tui.h>
-#include <bloom-boba/components/textinput.h>
 
 int main(void) {
     /* Initialize component */
@@ -106,32 +131,67 @@ typedef struct {
 This allows components to trigger effects at startup (e.g., start a timer,
 fetch initial data).
 
+## Messages and Commands
+
+### Message Types
+
+Messages represent events flowing into the update function:
+
+| Type                             | Description                                       |
+| -------------------------------- | ------------------------------------------------- |
+| `TUI_MSG_KEY_PRESS`              | Key press with modifiers (Ctrl, Alt, Shift, Meta) |
+| `TUI_MSG_MOUSE`                  | Mouse button/wheel/motion with SGR coordinates    |
+| `TUI_MSG_WINDOW_SIZE`            | Terminal resized                                  |
+| `TUI_MSG_FOCUS` / `TUI_MSG_BLUR` | Application-level focus management                |
+| `TUI_MSG_LINE_SUBMIT`            | Line submitted from text input                    |
+| `TUI_MSG_EOF`                    | End of input (Ctrl+D on empty line)               |
+| `TUI_MSG_CUSTOM_BASE`            | Base value for application-defined messages       |
+
+### Command Types
+
+Commands represent effects returned from the update function:
+
+| Type                                          | Description                                     |
+| --------------------------------------------- | ----------------------------------------------- |
+| `TUI_CMD_QUIT`                                | Exit the application                            |
+| `TUI_CMD_BATCH`                               | Run multiple commands                           |
+| `TUI_CMD_LINE_SUBMIT`                         | Line submitted (contains text)                  |
+| `TUI_CMD_TAB_COMPLETE`                        | Tab completion request (prefix + word position) |
+| `TUI_CMD_ENTER/EXIT_ALT_SCREEN`               | Alternate screen buffer                         |
+| `TUI_CMD_ENABLE/DISABLE_MOUSE`                | SGR mouse tracking                              |
+| `TUI_CMD_ENABLE/DISABLE_KEYBOARD_ENHANCEMENT` | Kitty keyboard protocol                         |
+| `TUI_CMD_SHOW/HIDE_CURSOR`                    | Cursor visibility                               |
+| `TUI_CMD_SET_WINDOW_TITLE`                    | OSC 2 window title                              |
+| `TUI_CMD_CUSTOM_BASE`                         | Base value for application-defined commands     |
+
 ## Components
 
 ### textinput
 
-A powerful single-line text input field with extensive editing features, similar to an HTML `<input type="text">` but with advanced terminal capabilities.
+A text input field with Emacs-style editing, similar to an HTML `<input type="text">` but with advanced terminal capabilities.
 
 Features:
 
 - **Multi-line support** - Toggle between single-line and multi-line text areas
 - **Unicode/UTF-8 support** - Full international character handling with proper cursor positioning
-- **Advanced cursor navigation** - Arrow keys, Home/End, Ctrl+Left/Right for word navigation
-- **Command history** - Up/down navigation with prefix filtering (only shows entries matching current input)
-- **Tab completion** - Configurable completion callback with cycling through suggestions
-- **Kill ring/yank buffer** - Emacs-style kill/yank operations (Ctrl+K, Ctrl+U, Ctrl+W, Ctrl+Y)
-- **Undo functionality** - Multiple undo levels with Ctrl+\_ (Ctrl+X Ctrl+U)
-- **Text manipulation** - Ctrl+T for transpose, Ctrl+H for delete
+- **Emacs keybindings** - Ctrl+A/E (line start/end), Ctrl+B/F (char movement), Ctrl+P/N (history/line navigation), Ctrl+K/U/W (kill), Ctrl+Y (yank), Ctrl+T (transpose)
+- **Command history** - Up/down navigation with saved current input
+- **Tab completion** - Emits `TUI_CMD_TAB_COMPLETE` with prefix and word position
+- **Kill ring** - Consecutive kills append to the same buffer
+- **Undo** - Multiple undo levels with Ctrl+\_ or Ctrl+X Ctrl+U
 - **Absolute cursor positioning** - Flicker-free rendering with optional divider lines
 - **Prompt support** - Custom prompt strings with proper UTF-8 width calculation
-- **Visual dividers** - Optional Unicode box-drawing lines above/below input field
+- **Visual dividers** - Optional Unicode box-drawing lines with configurable color
+- **Configurable word characters** - Whitelist-based word boundaries for completion and movement
 
 ```c
 TuiTextInput *input = tui_textinput_create(NULL);
 tui_textinput_set_prompt(input, "> ");
 tui_textinput_set_history_size(input, 100);
-tui_textinput_set_terminal_row(input, 23);  /* Absolute positioning */
-tui_textinput_set_show_dividers(input, 1);  /* Show decorative lines */
+tui_textinput_set_terminal_row(input, 23);    /* Absolute positioning */
+tui_textinput_set_show_dividers(input, 1);    /* Show decorative lines */
+tui_textinput_set_divider_color(input, "36"); /* Cyan dividers */
+tui_textinput_set_word_chars(input, "abc..."); /* Word boundary chars */
 ```
 
 ### viewport
@@ -175,6 +235,25 @@ Features:
 TuiTextView *view = tui_textview_create(10);
 tui_textview_append_str(view, "Simple text output\n");
 tui_textview_write_direct(view, "Live output", 11);
+```
+
+### statusbar
+
+A single-line status bar with a mode indicator on the left and notification text on the right.
+
+Features:
+
+- **Mode indicator** - Persistent left-aligned text (e.g., current mode or state)
+- **Notifications** - Transient right-aligned text
+- **Absolute cursor positioning** - Positioned at a specific terminal row
+- **UTF-8 aware** - Correct display width calculation for alignment
+
+```c
+TuiStatusBar *sb = tui_statusbar_create();
+tui_statusbar_set_terminal_width(sb, 80);
+tui_statusbar_set_terminal_row(sb, 24);
+tui_statusbar_set_mode(sb, "NORMAL");
+tui_statusbar_set_notification(sb, "Connected");
 ```
 
 ## Component Composition
@@ -268,6 +347,16 @@ Elm has a `subscriptions : Model -> Sub Msg` function for external event sources
 bloom-boba defers this complexity:
 
 - Terminal apps typically need few subscriptions (timers, window resize)
-- Window resize is handled by the host app's signal handler
-- Timers can be added to the host app's event loop
+- The runtime's event loop handles window resize and provides tick/external FD callbacks
 - If needed, subscriptions could be added later without breaking the API
+
+### Input Parsing
+
+The input parser (`TuiInputParser`) converts raw terminal bytes into typed messages:
+
+- ANSI CSI sequences (cursor keys, function keys, modifiers)
+- SS3 sequences (alternate cursor encoding)
+- SGR extended mouse sequences (`CSI < Cb;Cx;Cy M/m`)
+- Kitty keyboard protocol (`CSI keycode;modifiers u`)
+- UTF-8 multi-byte sequences
+- Control characters with modifier detection
