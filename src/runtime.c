@@ -212,13 +212,21 @@ static int execute_cmd(TuiRuntime *runtime, TuiCmd *cmd)
 
     /* Terminal control commands — write sequences to output */
     case TUI_CMD_ENTER_ALT_SCREEN:
-        runtime_write(runtime, ANSI_ENTER_ALT_SCREEN);
-        fflush(runtime->output);
+        if (!runtime->in_alt_screen) {
+            runtime_write(runtime, DECSC);
+            runtime_write(runtime, ANSI_ENTER_ALT_SCREEN);
+            runtime->in_alt_screen = 1;
+            fflush(runtime->output);
+        }
         break;
 
     case TUI_CMD_EXIT_ALT_SCREEN:
-        runtime_write(runtime, ANSI_EXIT_ALT_SCREEN);
-        fflush(runtime->output);
+        if (runtime->in_alt_screen) {
+            runtime_write(runtime, ANSI_EXIT_ALT_SCREEN);
+            runtime_write(runtime, DECRC);
+            runtime->in_alt_screen = 0;
+            fflush(runtime->output);
+        }
         break;
 
     case TUI_CMD_ENABLE_MOUSE:
@@ -359,9 +367,10 @@ void tui_runtime_start(TuiRuntime *runtime)
         return;
 
     if (runtime->config.use_alternate_screen) {
+        runtime_write(runtime, DECSC);
         runtime_write(runtime, ANSI_ENTER_ALT_SCREEN);
-        /* Clear screen and home cursor after entering alt screen */
         runtime_write(runtime, ED_ENTIRE CUP_HOME);
+        runtime->in_alt_screen = 1;
     }
 
     if (runtime->config.enable_mouse)
@@ -369,6 +378,9 @@ void tui_runtime_start(TuiRuntime *runtime)
 
     if (runtime->config.enable_keyboard_enhancement)
         runtime_write(runtime, ANSI_ENABLE_KITTY_KBD);
+
+    if (runtime->config.hide_cursor)
+        runtime_write(runtime, ANSI_HIDE_CURSOR);
 
     fflush(runtime->output);
     runtime->started = 1;
@@ -380,14 +392,20 @@ void tui_runtime_stop(TuiRuntime *runtime)
     if (!runtime || !runtime->started)
         return;
 
+    runtime_write(runtime, SGR_RESET);
+    runtime_write(runtime, ANSI_SHOW_CURSOR);
+
     if (runtime->config.enable_keyboard_enhancement)
         runtime_write(runtime, ANSI_DISABLE_KITTY_KBD);
 
     if (runtime->config.enable_mouse)
         runtime_write(runtime, ANSI_DISABLE_MOUSE);
 
-    if (runtime->config.use_alternate_screen)
+    if (runtime->in_alt_screen) {
         runtime_write(runtime, ANSI_EXIT_ALT_SCREEN);
+        runtime_write(runtime, DECRC);
+        runtime->in_alt_screen = 0;
+    }
 
     fflush(runtime->output);
     runtime->started = 0;
@@ -407,8 +425,9 @@ void tui_runtime_flush(TuiRuntime *runtime)
     /* Render component view into buffer */
     runtime->component->view(runtime->model, runtime->view_buf);
 
-    /* Show cursor */
-    dynamic_buffer_append_str(runtime->view_buf, ANSI_SHOW_CURSOR);
+    /* Restore cursor visibility unless config says keep hidden */
+    if (!runtime->config.hide_cursor)
+        dynamic_buffer_append_str(runtime->view_buf, ANSI_SHOW_CURSOR);
 
     /* Write all at once */
     fwrite(dynamic_buffer_data(runtime->view_buf), 1,

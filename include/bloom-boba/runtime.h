@@ -78,6 +78,7 @@ struct TuiRuntime {
   int running;                 /* Whether runtime is running */
   int quit_requested;          /* Quit has been requested */
   int started;                 /* Idempotent start/stop guard */
+  int in_alt_screen;           /* Currently in alternate screen buffer */
   int term_width;              /* Current terminal width */
   int term_height;             /* Current terminal height */
 #ifndef _WIN32
