@@ -9,6 +9,7 @@ libbloom_boba_a_SOURCES = \
     runtime.c \
     dynamic_buffer.c \
     ansi_sequences.c \
+    unicode.c \
     components/textinput.c \
     components/textview.c \
     components/viewport.c \

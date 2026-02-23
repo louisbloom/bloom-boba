@@ -3,6 +3,7 @@
 #include <bloom-boba/ansi_sequences.h>
 #include <bloom-boba/cmd.h>
 #include <bloom-boba/components/textinput.h>
+#include <bloom-boba/unicode.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,71 +19,6 @@ static int is_word_char(const TuiTextInput *input, char c)
     return c != ' ' && c != '\t'; /* fallback when word_chars not set */
 }
 
-/* UTF-8 helper: Get byte length of UTF-8 character starting at ptr */
-static int utf8_char_len(const char *ptr)
-{
-    unsigned char c = (unsigned char)*ptr;
-    if ((c & 0x80) == 0)
-        return 1;
-    if ((c & 0xE0) == 0xC0)
-        return 2;
-    if ((c & 0xF0) == 0xE0)
-        return 3;
-    if ((c & 0xF8) == 0xF0)
-        return 4;
-    return 1; /* Invalid, treat as single byte */
-}
-
-/* UTF-8 helper: Get previous character start position */
-static size_t utf8_prev_char(const char *text, size_t pos)
-{
-    if (pos == 0)
-        return 0;
-    pos--;
-    while (pos > 0 && ((unsigned char)text[pos] & 0xC0) == 0x80) {
-        pos--;
-    }
-    return pos;
-}
-
-/* Count total codepoints in a UTF-8 string */
-static int utf8_codepoint_count(const char *text, size_t len)
-{
-    int count = 0;
-    size_t i = 0;
-    while (i < len) {
-        i += utf8_char_len(text + i);
-        count++;
-    }
-    return count;
-}
-
-/* Return byte offset of the Nth codepoint (0-indexed).
- * If cp_index >= total codepoints, returns text_len. */
-static size_t utf8_byte_offset_of_cp(const char *text, size_t text_len,
-                                     int cp_index)
-{
-    size_t offset = 0;
-    int cp = 0;
-    while (offset < text_len && cp < cp_index) {
-        offset += utf8_char_len(text + offset);
-        cp++;
-    }
-    return offset;
-}
-
-/* Return codepoint index for a given byte position */
-static int utf8_cp_index_of_byte(const char *text, size_t byte_pos)
-{
-    int cp = 0;
-    size_t i = 0;
-    while (i < byte_pos) {
-        i += utf8_char_len(text + i);
-        cp++;
-    }
-    return cp;
-}
-
 /* Adjust horizontal scroll offset so cursor stays visible */
 static void handle_overflow(TuiTextInput *input)
 {
@@ -92,13 +28,13 @@ static void handle_overflow(TuiTextInput *input)
 
     if (content_width <= 0 || input->terminal_width == 0) {
         input->offset = 0;
-        int total = utf8_codepoint_count(input->text, input->text_len);
+        int total = tui_utf8_codepoint_count(input->text, input->text_len);
         input->offset_right = total;
         return;
     }
 
-    int total = utf8_codepoint_count(input->text, input->text_len);
-    int cursor_cp = utf8_cp_index_of_byte(input->text, input->cursor_byte);
+    int total = tui_utf8_codepoint_count(input->text, input->text_len);
+    int cursor_cp = tui_utf8_cp_index(input->text, input->cursor_byte);
 
     if (total <= content_width) {
         /* Everything fits */
@@ -200,29 +136,7 @@ static int insert_text(TuiTextInput *input, const char *text, size_t len)
 static int insert_codepoint(TuiTextInput *input, uint32_t cp)
 {
     char buf[5];
-    int len;
-
-    if (cp < 0x80) {
-        buf[0] = (char)cp;
-        len = 1;
-    } else if (cp < 0x800) {
-        buf[0] = (char)(0xC0 | (cp >> 6));
-        buf[1] = (char)(0x80 | (cp & 0x3F));
-        len = 2;
-    } else if (cp < 0x10000) {
-        buf[0] = (char)(0xE0 | (cp >> 12));
-        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        buf[2] = (char)(0x80 | (cp & 0x3F));
-        len = 3;
-    } else {
-        buf[0] = (char)(0xF0 | (cp >> 18));
-        buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-        buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        buf[3] = (char)(0x80 | (cp & 0x3F));
-        len = 4;
-    }
-    buf[len] = '\0';
-
+    int len = tui_utf8_encode(cp, buf);
     return insert_text(input, buf, len);
 }
 
@@ -232,7 +146,7 @@ static void delete_before(TuiTextInput *input)
     if (input->cursor_byte == 0)
         return;
 
-    size_t prev = utf8_prev_char(input->text, input->cursor_byte);
+    size_t prev = tui_utf8_prev_char(input->text, input->cursor_byte);
     size_t del_len = input->cursor_byte - prev;
 
     memmove(input->text + prev, input->text + input->cursor_byte,
@@ -250,7 +164,7 @@ static void delete_at(TuiTextInput *input)
     if (input->cursor_byte >= input->text_len)
         return;
 
-    int char_len = utf8_char_len(input->text + input->cursor_byte);
+    int char_len = tui_utf8_char_len(input->text + input->cursor_byte);
     size_t del_end = input->cursor_byte + char_len;
     if (del_end > input->text_len)
         del_end = input->text_len;
@@ -265,7 +179,7 @@ static void delete_at(TuiTextInput *input)
 static void cursor_left(TuiTextInput *input)
 {
     if (input->cursor_byte > 0) {
-        input->cursor_byte = utf8_prev_char(input->text, input->cursor_byte);
+        input->cursor_byte = tui_utf8_prev_char(input->text, input->cursor_byte);
         recalculate_cursor_position(input);
     }
 }
@@ -274,7 +188,7 @@ static void cursor_left(TuiTextInput *input)
 static void cursor_right(TuiTextInput *input)
 {
     if (input->cursor_byte < input->text_len) {
-        input->cursor_byte += utf8_char_len(input->text + input->cursor_byte);
+        input->cursor_byte += tui_utf8_char_len(input->text + input->cursor_byte);
         if (input->cursor_byte > input->text_len)
             input->cursor_byte = input->text_len;
         recalculate_cursor_position(input);
@@ -458,15 +372,15 @@ static void transpose_chars(TuiTextInput *input)
     if (pos >= input->text_len) {
         /* At end: swap last two characters */
         c2_end = input->text_len;
-        c2_start = utf8_prev_char(input->text, c2_end);
-        c1_start = utf8_prev_char(input->text, c2_start);
+        c2_start = tui_utf8_prev_char(input->text, c2_end);
+        c1_start = tui_utf8_prev_char(input->text, c2_start);
     } else {
         /* In middle: swap char before cursor with char at cursor */
         c2_start = pos;
-        c2_end = pos + utf8_char_len(input->text + pos);
+        c2_end = pos + tui_utf8_char_len(input->text + pos);
         if (c2_end > input->text_len)
             c2_end = input->text_len;
-        c1_start = utf8_prev_char(input->text, c2_start);
+        c1_start = tui_utf8_prev_char(input->text, c2_start);
     }
 
     size_t c1_len = c2_start - c1_start;
@@ -726,7 +640,7 @@ TuiTextInput *tui_textinput_create(const TuiTextInputConfig *config)
     if (config) {
         input->prompt = config->prompt;
         if (input->prompt) {
-            input->prompt_len = utf8_codepoint_count(input->prompt, strlen(input->prompt));
+            input->prompt_len = tui_utf8_codepoint_count(input->prompt, strlen(input->prompt));
         }
         input->width = config->width;
         input->height = config->height;
@@ -1065,9 +979,9 @@ static void render_prompt_and_text(const TuiTextInput *input, DynamicBuffer *out
     if (input->text_len > 0) {
         if (input->terminal_width > 0 && input->offset_right > input->offset) {
             size_t byte_start =
-                utf8_byte_offset_of_cp(input->text, input->text_len, input->offset);
-            size_t byte_end = utf8_byte_offset_of_cp(input->text, input->text_len,
-                                                     input->offset_right);
+                tui_utf8_byte_offset(input->text, input->text_len, input->offset);
+            size_t byte_end = tui_utf8_byte_offset(input->text, input->text_len,
+                                                   input->offset_right);
             dynamic_buffer_append(out, input->text + byte_start,
                                   byte_end - byte_start);
         } else {
@@ -1136,7 +1050,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
             if (input->focused) {
                 int prompt_width =
                     (input->show_prompt && input->prompt) ? input->prompt_len : 0;
-                int cursor_cp = utf8_cp_index_of_byte(input->text, input->cursor_byte);
+                int cursor_cp = tui_utf8_cp_index(input->text, input->cursor_byte);
                 int cursor_visual_col =
                     prompt_width + (cursor_cp - input->offset) + 1; /* 1-indexed */
 
@@ -1157,7 +1071,7 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
             if (input->focused) {
                 int prompt_width =
                     (input->show_prompt && input->prompt) ? input->prompt_len : 0;
-                int cursor_cp = utf8_cp_index_of_byte(input->text, input->cursor_byte);
+                int cursor_cp = tui_utf8_cp_index(input->text, input->cursor_byte);
                 int cursor_visual_col = prompt_width + (cursor_cp - input->offset);
 
                 dynamic_buffer_append_str(out, "\r");
@@ -1470,7 +1384,7 @@ void tui_textinput_set_prompt(TuiTextInput *input, const char *prompt)
     if (!input)
         return;
     input->prompt = prompt;
-    input->prompt_len = prompt ? utf8_codepoint_count(prompt, strlen(prompt)) : 0;
+    input->prompt_len = prompt ? tui_utf8_codepoint_count(prompt, strlen(prompt)) : 0;
 }
 
 /* Set the continuation prompt string */
@@ -1481,7 +1395,7 @@ void tui_textinput_set_continuation_prompt(TuiTextInput *input,
         return;
     input->continuation_prompt = prompt;
     input->continuation_prompt_len =
-        prompt ? utf8_codepoint_count(prompt, strlen(prompt)) : 0;
+        prompt ? tui_utf8_codepoint_count(prompt, strlen(prompt)) : 0;
 }
 
 /* Set whether to show dividers above/below the input */

@@ -9,7 +9,8 @@ bloom_boba_HEADERS = \
     bloom-boba/input_parser.h \
     bloom-boba/runtime.h \
     bloom-boba/dynamic_buffer.h \
-    bloom-boba/ansi_sequences.h
+    bloom-boba/ansi_sequences.h \
+    bloom-boba/unicode.h
 
 bloom_boba_componentsdir = $(includedir)/bloom-boba/components
 bloom_boba_components_HEADERS = \

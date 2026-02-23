@@ -12,6 +12,7 @@
 /* Core types and utilities */
 #include "ansi_sequences.h"
 #include "dynamic_buffer.h"
+#include "unicode.h"
 
 /* Elm Architecture types */
 #include "cmd.h"
