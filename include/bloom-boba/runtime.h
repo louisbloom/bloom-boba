@@ -41,6 +41,10 @@ typedef void (*TuiOnExternalReady)(void *user_data);
 /* Callback: called every tick (select timeout, ~100ms) */
 typedef void (*TuiOnTick)(void *user_data);
 
+/* Return ms until next tick is needed, or -1 to block indefinitely.
+ * Called before each select(). */
+typedef int (*TuiGetTickTimeoutMs)(void *user_data);
+
 /* Callback: terminal resized (width, height already updated in runtime) */
 typedef void (*TuiOnResize)(int width, int height, void *user_data);
 
@@ -62,6 +66,7 @@ typedef struct TuiRuntimeConfig {
   TuiGetExternalFd get_external_fd;   /* External FD to poll */
   TuiOnExternalReady on_external_ready; /* External FD ready */
   TuiOnTick on_tick;                  /* Tick (~100ms timeout) */
+  TuiGetTickTimeoutMs get_tick_timeout_ms; /* Dynamic tick timeout */
   TuiOnResize on_resize;              /* Terminal resized */
   TuiOnStdinProcessed on_stdin_processed; /* After stdin processed */
   void *event_data;                   /* Context pointer for event callbacks */
@@ -192,5 +197,10 @@ void tui_runtime_drain(TuiRuntime *runtime);
 /* Get the wakeup FD for use with select()/poll().
  * Returns -1 if unavailable. When readable, call tui_runtime_drain(). */
 int tui_runtime_wakeup_fd(TuiRuntime *runtime);
+
+/* Wake the event loop from select(). Thread-safe.
+ * Use when external state (e.g. timers) changes and select() should
+ * recompute its timeout. */
+void tui_runtime_wakeup(TuiRuntime *runtime);
 
 #endif /* BLOOM_BOBA_RUNTIME_H */

@@ -623,6 +623,13 @@ int tui_runtime_wakeup_fd(TuiRuntime *runtime)
     return runtime->wakeup_pipe[0];
 }
 
+/* Wake the event loop from select() */
+void tui_runtime_wakeup(TuiRuntime *runtime)
+{
+    if (runtime)
+        runtime_wakeup(runtime);
+}
+
 /* Run the full event loop (blocking). Owns raw mode, signals, select().
  * Returns 0 on normal exit, -1 on error. */
 int tui_runtime_run(TuiRuntime *runtime)
@@ -709,9 +716,27 @@ int tui_runtime_run(TuiRuntime *runtime)
                 max_fd = runtime->wakeup_pipe[0];
         }
 
-        /* 100ms tick timeout */
-        struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
-        int ready = select(max_fd + 1, &read_fds, NULL, NULL, &tv);
+        /* Compute tick timeout */
+        struct timeval tv;
+        struct timeval *tv_ptr;
+        if (runtime->config.get_tick_timeout_ms) {
+            int ms = runtime->config.get_tick_timeout_ms(
+                runtime->config.event_data);
+            if (ms < 0) {
+                tv_ptr = NULL; /* Block indefinitely */
+            } else {
+                tv.tv_sec = ms / 1000;
+                tv.tv_usec = (ms % 1000) * 1000;
+                tv_ptr = &tv;
+            }
+        } else {
+            /* Default 100ms for simple consumers */
+            tv.tv_sec = 0;
+            tv.tv_usec = 100000;
+            tv_ptr = &tv;
+        }
+
+        int ready = select(max_fd + 1, &read_fds, NULL, NULL, tv_ptr);
 
         if (ready < 0) {
             if (errno == EINTR)
@@ -750,11 +775,9 @@ int tui_runtime_run(TuiRuntime *runtime)
             tui_runtime_flush(runtime);
         }
 
-        /* Tick (timeout) */
-        if (ready == 0) {
-            if (runtime->config.on_tick)
-                runtime->config.on_tick(runtime->config.event_data);
-        }
+        /* Tick — fires on every iteration (timeout, fd activity, wakeup) */
+        if (runtime->config.on_tick)
+            runtime->config.on_tick(runtime->config.event_data);
     }
 
     /* Teardown */
