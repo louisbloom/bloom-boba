@@ -14,7 +14,7 @@
 #include <unistd.h>
 #endif
 
-#define MAX_MSGS_PER_FRAME 64
+#define MAX_MSGS_PER_FRAME 256
 #define QUEUE_INITIAL_CAP  16
 
 /* --- Signal handling (Unix only) --- */
