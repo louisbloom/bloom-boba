@@ -14,8 +14,9 @@
 #include <unistd.h>
 #endif
 
-#define MAX_MSGS_PER_FRAME 256
-#define QUEUE_INITIAL_CAP  16
+#define STDIN_READ_BUF_SIZE 256
+#define MAX_MSGS_PER_FRAME  STDIN_READ_BUF_SIZE /* one msg per byte worst case */
+#define QUEUE_INITIAL_CAP   16
 
 /* --- Signal handling (Unix only) --- */
 #ifndef _WIN32
@@ -746,7 +747,7 @@ int tui_runtime_run(TuiRuntime *runtime)
 
         /* stdin ready */
         if (ready > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
-            unsigned char buf[256];
+            unsigned char buf[STDIN_READ_BUF_SIZE];
             ssize_t n = read(STDIN_FILENO, buf, sizeof(buf));
             if (n > 0) {
                 tui_runtime_process_input(runtime, buf, n);
