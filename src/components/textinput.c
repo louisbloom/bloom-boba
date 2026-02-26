@@ -977,7 +977,17 @@ static void render_prompt_and_text(const TuiTextInput *input, DynamicBuffer *out
             dynamic_buffer_append_str(out, SGR_RESET);
     }
     if (input->text_len > 0) {
-        if (input->terminal_width > 0 && input->offset_right > input->offset) {
+        if (input->echo_mode == 1) {
+            /* Masked mode: output '*' for each visible codepoint */
+            int total_cp = tui_utf8_codepoint_count(input->text, input->text_len);
+            int start_cp = 0, end_cp = total_cp;
+            if (input->terminal_width > 0 && input->offset_right > input->offset) {
+                start_cp = input->offset;
+                end_cp = input->offset_right;
+            }
+            for (int i = start_cp; i < end_cp; i++)
+                dynamic_buffer_append(out, "*", 1);
+        } else if (input->terminal_width > 0 && input->offset_right > input->offset) {
             size_t byte_start =
                 tui_utf8_byte_offset(input->text, input->text_len, input->offset);
             size_t byte_end = tui_utf8_byte_offset(input->text, input->text_len,
@@ -1122,8 +1132,15 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
 
                 /* Line content */
                 if (i > line_start) {
-                    dynamic_buffer_append(out, input->text + line_start,
-                                          i - line_start);
+                    if (input->echo_mode == 1) {
+                        int cp = tui_utf8_codepoint_count(
+                            input->text + line_start, i - line_start);
+                        for (int k = 0; k < cp; k++)
+                            dynamic_buffer_append(out, "*", 1);
+                    } else {
+                        dynamic_buffer_append(out, input->text + line_start,
+                                              i - line_start);
+                    }
                 }
 
                 current_line++;
@@ -1170,6 +1187,13 @@ void tui_textinput_view(const TuiTextInput *input, DynamicBuffer *out)
                     if (input->show_prompt && input->prompt && input->prompt_len > 0) {
                         render_continuation_prompt(input, out);
                     }
+                } else if (input->echo_mode == 1) {
+                    /* Count codepoint bytes, output single '*' per codepoint */
+                    int cplen = tui_utf8_char_len(&input->text[i]);
+                    if (cplen < 1)
+                        cplen = 1;
+                    dynamic_buffer_append(out, "*", 1);
+                    i += cplen - 1; /* loop will advance by 1 more */
                 } else {
                     dynamic_buffer_append(out, &input->text[i], 1);
                 }
@@ -1396,6 +1420,19 @@ void tui_textinput_set_continuation_prompt(TuiTextInput *input,
     input->continuation_prompt = prompt;
     input->continuation_prompt_len =
         prompt ? tui_utf8_codepoint_count(prompt, strlen(prompt)) : 0;
+}
+
+/* Set echo mode */
+void tui_textinput_set_echo_mode(TuiTextInput *input, int mode)
+{
+    if (input)
+        input->echo_mode = mode;
+}
+
+/* Get echo mode */
+int tui_textinput_get_echo_mode(const TuiTextInput *input)
+{
+    return input ? input->echo_mode : 0;
 }
 
 /* Set whether to show dividers above/below the input */

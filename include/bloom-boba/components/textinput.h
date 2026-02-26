@@ -75,6 +75,8 @@ typedef struct TuiTextInput {
   size_t snap_len;
   size_t snap_cursor;
   int snap_valid;            /* Whether snapshot should be committed */
+
+  int echo_mode;             /* 0 = normal, 1 = masked (show * per codepoint) */
 } TuiTextInput;
 
 /* Configuration for creating text input */
@@ -195,6 +197,12 @@ void tui_textinput_set_prompt_color(TuiTextInput *input, const char *color);
  */
 void tui_textinput_set_continuation_prompt(TuiTextInput *input,
                                            const char *prompt);
+
+/* Set echo mode: 0 = normal, 1 = masked (show * per codepoint) */
+void tui_textinput_set_echo_mode(TuiTextInput *input, int mode);
+
+/* Get echo mode */
+int tui_textinput_get_echo_mode(const TuiTextInput *input);
 
 /* Get render height in rows (includes dividers if enabled)
  * Returns 1 for the input line itself, +2 if show_dividers is enabled.
