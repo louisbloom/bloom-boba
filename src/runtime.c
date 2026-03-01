@@ -645,6 +645,10 @@ int tui_runtime_run(TuiRuntime *runtime)
                         .data.size = { .width = runtime->term_width,
                                        .height = runtime->term_height } };
     tui_runtime_send(runtime, size_msg);
+    if (runtime->config.on_resize)
+        runtime->config.on_resize(runtime->term_width,
+                                  runtime->term_height,
+                                  runtime->config.event_data);
 
     /* Enable raw mode if configured */
     if (runtime->config.raw_mode) {
