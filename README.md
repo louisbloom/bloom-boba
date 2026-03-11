@@ -60,14 +60,14 @@ The runtime can be used in two modes:
 **Bubbletea-style** — `tui_runtime_run()` owns the event loop, raw mode, and signal handling:
 
 ```c
-TuiRuntime *rt = tui_runtime_create(&my_component, NULL);
+TuiRuntime *rt = tui_runtime_create(&my_component, NULL, NULL);
 tui_runtime_run(rt);  /* Blocks until quit */
 tui_runtime_free(rt);
 ```
 
 The runtime handles SIGWINCH (resize), SIGINT, stdin polling, and optional external FD
 polling via `TuiRuntimeConfig` callbacks (`on_tick`, `on_resize`, `get_external_fd`,
-`on_external_ready`, `on_stdin_processed`).
+`on_external_ready`, `on_stdin_processed`, `get_tick_timeout_ms`).
 
 **Lower-level** — caller owns the event loop, drives the runtime manually:
 
@@ -99,6 +99,8 @@ tui_runtime_schedule(rt, cmd);  /* Runtime takes ownership */
 ```
 
 When using `tui_runtime_run()`, queued items are drained automatically each iteration.
+Use `tui_runtime_wakeup(rt)` to wake the event loop from `select()` when external state
+changes and the tick timeout needs recomputing (thread-safe, async-signal-safe).
 
 For lower-level usage where the caller owns the event loop, add the wakeup FD to your
 `select()`/`poll()` and call `tui_runtime_drain()` when it becomes readable:
@@ -222,15 +224,20 @@ Features:
 - **Prompt support** - Custom prompt strings with proper UTF-8 width calculation
 - **Visual dividers** - Optional Unicode box-drawing lines with configurable color
 - **Configurable word characters** - Whitelist-based word boundaries for completion and movement
+- **Echo mode** - Password masking (shows `*` per codepoint)
+- **Prompt color** - Custom ANSI color for the prompt string
+- **Continuation prompt** - Custom prompt for lines after the first in multi-line mode
 
 ```c
 TuiTextInput *input = tui_textinput_create(NULL);
 tui_textinput_set_prompt(input, "> ");
+tui_textinput_set_prompt_color(input, "\033[38;2;255;6;183m");
 tui_textinput_set_history_size(input, 100);
 tui_textinput_set_terminal_row(input, 23);    /* Absolute positioning */
 tui_textinput_set_show_dividers(input, 1);    /* Show decorative lines */
 tui_textinput_set_divider_color(input, "36"); /* Cyan dividers */
 tui_textinput_set_word_chars(input, "abc..."); /* Word boundary chars */
+tui_textinput_set_echo_mode(input, 1);        /* Password masking */
 ```
 
 ### viewport
@@ -400,3 +407,50 @@ The input parser (`TuiInputParser`) converts raw terminal bytes into typed messa
 - Kitty keyboard protocol (`CSI keycode;modifiers u`)
 - UTF-8 multi-byte sequences
 - Control characters with modifier detection
+
+## Building
+
+### Dependencies
+
+Required:
+
+- `gcc` — C compiler
+- `autoconf` — Generate configure scripts
+- `automake` — Generate Makefile.in files
+- `make` — Build system
+
+Optional (for development):
+
+- `bear` — Generate `compile_commands.json` for clang tooling
+- `clang-tools-extra` — Provides `clang-format` for code formatting
+- `shfmt` — Shell script formatting
+- `prettier` — Markdown formatting
+
+On Fedora 41+:
+
+```bash
+sudo dnf install gcc autoconf automake make
+sudo dnf install bear clang-tools-extra shfmt   # optional
+```
+
+### Build Commands
+
+The project uses GNU Autotools. A convenience script wraps the full build:
+
+```bash
+./build.sh                      # Full build with debug flags
+./build.sh --test                # Build and run tests (make check)
+./build.sh --install             # Build and install to ~/.local
+./build.sh --bear                # Build and generate compile_commands.json
+./build.sh --format              # Format sources (clang-format, shfmt, prettier)
+./build.sh --prefix=/some/path   # Custom install prefix
+```
+
+Output: `build/src/libbloom-boba.a` (static library). Link with `-lbloom-boba` and
+add `-I$PREFIX/include` for headers.
+
+## Contributing
+
+See [AUTHORS](AUTHORS) for the list of contributors.
+
+This project is licensed under the [MIT License](COPYING).
