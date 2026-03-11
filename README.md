@@ -438,7 +438,8 @@ sudo dnf install bear clang-tools-extra shfmt   # optional
 The project uses GNU Autotools. A convenience script wraps the full build:
 
 ```bash
-./build.sh                      # Full build with debug flags
+./build.sh                      # Full build with debug flags (-O0 -g3 -DDEBUG)
+./build.sh --no-debug            # Build with release flags (-O2)
 ./build.sh --test                # Build and run tests (make check)
 ./build.sh --install             # Build and install to ~/.local
 ./build.sh --bear                # Build and generate compile_commands.json
@@ -446,8 +447,12 @@ The project uses GNU Autotools. A convenience script wraps the full build:
 ./build.sh --prefix=/some/path   # Custom install prefix
 ```
 
-Output: `build/src/libbloom-boba.a` (static library). Link with `-lbloom-boba` and
-add `-I$PREFIX/include` for headers.
+Output: `build/src/libbloom-boba.a` (static library). After `--install`, use
+pkg-config to get the correct flags:
+
+```bash
+gcc -o myapp myapp.c $(pkg-config --cflags --libs bloom-boba)
+```
 
 ## Contributing
 

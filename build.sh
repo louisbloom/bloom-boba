@@ -88,6 +88,8 @@ configure_build() {
 
 	if [ "$ENABLE_DEBUG" = true ]; then
 		CONFIGURE_CMD="$CONFIGURE_CMD CFLAGS='-O0 -g3 -DDEBUG'"
+	else
+		CONFIGURE_CMD="$CONFIGURE_CMD CFLAGS='-O2'"
 	fi
 
 	log_info "Running: $CONFIGURE_CMD"
@@ -191,7 +193,7 @@ main() {
 	while [[ $# -gt 0 ]]; do
 		case $1 in
 		--install)
-			INSTALL_ONLY=true
+			DO_INSTALL=true
 			shift
 			;;
 		--bear)
@@ -237,51 +239,33 @@ main() {
 	# Check OS
 	check_os
 
-	# If --install flag is used, build and install
-	if [ "${INSTALL_ONLY:-false}" = true ]; then
-		log_info "Building and installing library (--install flag used)"
+	# Generate configure script
+	if ! generate_configure; then
+		exit 1
+	fi
 
-		# Generate configure script
-		if ! generate_configure; then
+	# Configure build
+	if ! configure_build; then
+		exit 1
+	fi
+
+	# Build project with bear if requested
+	if [ "${USE_BEAR:-false}" = true ]; then
+		if ! build_project true; then
 			exit 1
 		fi
-
-		# Configure build
-		if ! configure_build; then
-			exit 1
-		fi
-
-		# Build project
+	else
 		if ! build_project; then
 			exit 1
 		fi
+	fi
 
-		# Install project
+	# Install if requested
+	if [ "${DO_INSTALL:-false}" = true ]; then
 		log_info "Installing library to $INSTALL_PREFIX"
 		if ! install_project; then
 			log_error "Installation failed"
 			exit 1
-		fi
-	else
-		# Generate configure script
-		if ! generate_configure; then
-			exit 1
-		fi
-
-		# Configure build
-		if ! configure_build; then
-			exit 1
-		fi
-
-		# Build project with bear if requested
-		if [ "${USE_BEAR:-false}" = true ]; then
-			if ! build_project true; then
-				exit 1
-			fi
-		else
-			if ! build_project; then
-				exit 1
-			fi
 		fi
 	fi
 
