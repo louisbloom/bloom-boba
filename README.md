@@ -366,35 +366,53 @@ TuiCmd *combined = tui_cmd_batch2(cmd1, cmd2);  /* Handles NULL gracefully */
 return tui_update_result(combined);
 ```
 
-## Architecture Decisions
+## How bloom-boba Adapts the Elm Architecture
 
-### Why Software Scrolling?
+### Software Scrolling
 
-bloom-boba's viewport uses software-based scrolling rather than ANSI scroll
-regions (DECSTBM). This follows Bubbletea's approach:
+Terminals offer ANSI scroll regions (DECSTBM) for hardware-assisted scrolling, but
+bloom-boba's viewport redraws content with absolute cursor positioning instead. This
+follows Bubbletea's approach. ANSI scroll regions behave inconsistently across
+terminal emulators — cursor positioning at region boundaries causes visual glitches,
+and the host terminal controls what happens in the scrollback buffer. Software
+scrolling avoids all of this: the viewport owns every pixel it draws, wrapping,
+clipping, and scroll position are just arithmetic on an in-memory line buffer.
 
-- ANSI scroll regions are fragile across terminal emulators
-- Cursor positioning at scroll region boundaries causes visual glitches
-- Software scrolling gives full control over rendering
-- Enables features like search, copy/paste from scrollback
+### Commands
 
-### Why Callbacks for Custom Commands?
+In Elm, commands are opaque values the runtime interprets. bloom-boba's built-in
+commands (`TUI_CMD_QUIT`, `TUI_CMD_LINE_SUBMIT`, `TUI_CMD_SET_WINDOW_TITLE`, etc.)
+work the same way — they are tagged union variants that the runtime's `execute_cmd()`
+function switches over. Application-defined custom commands add a callback, because
+that is the simplest way for application code to define arbitrary effects without
+the runtime needing to know about them in advance.
 
-Most built-in commands (`TUI_CMD_QUIT`, `TUI_CMD_LINE_SUBMIT`,
-`TUI_CMD_SET_WINDOW_TITLE`, etc.) are declarative — tagged union variants that the
-runtime interprets. Only application-defined custom commands use callbacks, because
-a callback is the simplest way to let application code define arbitrary effects
-without the runtime needing to know about them in advance.
+### Subscriptions
 
-### Why No Subscriptions?
+Elm's `subscriptions : Model -> Sub Msg` lets a program declaratively describe
+ongoing event sources that change based on model state — subscribe to a WebSocket
+only when connected, start a timer only in a certain mode. bloom-boba covers the
+same use cases through runtime config callbacks:
 
-Elm has a `subscriptions : Model -> Sub Msg` function for external event sources.
-bloom-boba doesn't need a formal subscriptions system because the same use cases are
-covered by simpler mechanisms:
+| Elm subscription               | bloom-boba equivalent                                            |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `Time.every 1000 Tick`         | `on_tick` + `get_tick_timeout_ms`                                |
+| Window resize                  | Automatic `TUI_MSG_WINDOW_SIZE` + `on_resize`                    |
+| Ports / external event sources | `get_external_fd` + `on_external_ready`                          |
+| Post-input hooks               | `on_stdin_processed`                                             |
+| Any external source            | `tui_runtime_post()` from callbacks, threads, or signal handlers |
 
-- The runtime handles window resize and provides tick/external FD callbacks
-- `tui_runtime_post()` lets any external code (signal handlers, callbacks, timers) inject
-  messages into the event loop, covering the primary subscription use case
+Two properties of terminal programs make this a good fit:
+
+- **Event sources are static.** A terminal program listens to stdin, signals, and
+  maybe one external FD. These don't change based on model state, so a config struct
+  set once at startup matches the reality better than a function re-evaluated after
+  every update.
+
+- **C already has event loop primitives.** Callbacks compose directly with
+  `select()`/`poll()`, signal handlers, and threads. A declarative subscription
+  layer would need an interpreter that adds indirection without adding
+  expressiveness for these use cases.
 
 ### Input Parsing
 
