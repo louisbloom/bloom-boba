@@ -378,14 +378,13 @@ regions (DECSTBM). This follows Bubbletea's approach:
 - Software scrolling gives full control over rendering
 - Enables features like search, copy/paste from scrollback
 
-### Why Callbacks for Commands?
+### Why Callbacks for Custom Commands?
 
-In pure Elm, commands are declarative data structures that the runtime interprets.
-In C, we use callbacks for pragmatism:
-
-- No garbage collection means declarative command data would need manual cleanup
-- Callbacks allow direct integration with C libraries and system calls
-- The tradeoff is testability, but C testing typically uses integration tests anyway
+Most built-in commands (`TUI_CMD_QUIT`, `TUI_CMD_LINE_SUBMIT`,
+`TUI_CMD_SET_WINDOW_TITLE`, etc.) are declarative — tagged union variants that the
+runtime interprets. Only application-defined custom commands use callbacks, because
+a callback is the simplest way to let application code define arbitrary effects
+without the runtime needing to know about them in advance.
 
 ### Why No Subscriptions?
 
