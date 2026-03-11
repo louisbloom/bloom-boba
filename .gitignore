@@ -43,7 +43,10 @@ Makefile.in
 .env
 .cecli*
 .aider*
+.claude/
 .cache/
 compile_commands.json
 crush.json
 .crushignore
+CLAUDE.md
+AGENTS.md
