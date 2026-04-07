@@ -17,6 +17,21 @@ INSTALL_PREFIX="$HOME/.local"
 ENABLE_DEBUG=true
 PARALLEL_JOBS=$(nproc)
 
+# Compute version from git tags
+get_version() {
+	if git describe --tags --match 'v*' HEAD >/dev/null 2>&1; then
+		# v0.1 → "0.1", v0.1-5-gabc1234 → "0.1.5-abc1234"
+		git describe --tags --match 'v*' HEAD | sed 's/^v//;s/-\([0-9]*\)-g/.\1-/'
+	else
+		# No tags: 0.0.N-HASH
+		local count
+		count=$(git rev-list --count HEAD)
+		local hash
+		hash=$(git rev-parse --short HEAD)
+		echo "0.0.${count}-${hash}"
+	fi
+}
+
 # Logging functions
 log_info() {
 	echo -e "${GREEN}[INFO]${NC} $1"
@@ -48,6 +63,10 @@ check_os() {
 # Generate configure script
 generate_configure() {
 	log_info "Generating configure script..."
+
+	# Write version file for configure.ac
+	get_version >version
+	log_info "Version: $(cat version)"
 
 	# Clean up any existing generated files
 	log_info "Cleaning up generated files..."
@@ -185,15 +204,63 @@ format_sources() {
 	log_info "Formatting completed."
 }
 
+# Default build action
+do_build() {
+	check_os
+
+	if ! generate_configure; then
+		exit 1
+	fi
+
+	if ! configure_build; then
+		exit 1
+	fi
+
+	if [ "${INSTALL_ONLY:-false}" = true ]; then
+		log_info "Installing library to $INSTALL_PREFIX"
+		if ! install_project; then
+			log_error "Installation failed"
+			exit 1
+		fi
+	else
+		if [ "${USE_BEAR:-false}" = true ]; then
+			if ! build_project true; then
+				exit 1
+			fi
+		else
+			if ! build_project; then
+				exit 1
+			fi
+		fi
+	fi
+
+	# Run tests if requested
+	if [ "${RUN_TESTS:-false}" = true ]; then
+		log_info "Running tests..."
+		cd "$BUILD_DIR"
+		if ! make check; then
+			log_error "Tests failed"
+			cd ..
+			exit 1
+		fi
+		cd ..
+		log_info "All tests passed!"
+	fi
+
+	log_info "Build process completed successfully!"
+	log_info "Build directory: $BUILD_DIR"
+	log_info "Library: $BUILD_DIR/src/libbloom-boba.a"
+}
+
 # Main execution
 main() {
-	log_info "Starting build process for $PROJECT_NAME"
+	local ACTION="build"
 
-	# Parse command line arguments
+	# Parse all arguments first, then dispatch
 	while [[ $# -gt 0 ]]; do
 		case $1 in
 		--install)
-			DO_INSTALL=true
+			INSTALL_ONLY=true
 			shift
 			;;
 		--bear)
@@ -213,8 +280,8 @@ main() {
 			shift
 			;;
 		--format)
-			format_sources
-			exit 0
+			ACTION=format
+			shift
 			;;
 		--help)
 			echo "Usage: $0 [options]"
@@ -236,55 +303,16 @@ main() {
 		esac
 	done
 
-	# Check OS
-	check_os
-
-	# Generate configure script
-	if ! generate_configure; then
-		exit 1
-	fi
-
-	# Configure build
-	if ! configure_build; then
-		exit 1
-	fi
-
-	# Build project with bear if requested
-	if [ "${USE_BEAR:-false}" = true ]; then
-		if ! build_project true; then
-			exit 1
-		fi
-	else
-		if ! build_project; then
-			exit 1
-		fi
-	fi
-
-	# Install if requested
-	if [ "${DO_INSTALL:-false}" = true ]; then
-		log_info "Installing library to $INSTALL_PREFIX"
-		if ! install_project; then
-			log_error "Installation failed"
-			exit 1
-		fi
-	fi
-
-	# Run tests if requested
-	if [ "${RUN_TESTS:-false}" = true ]; then
-		log_info "Running tests..."
-		cd "$BUILD_DIR"
-		if ! make check; then
-			log_error "Tests failed"
-			cd ..
-			exit 1
-		fi
-		cd ..
-		log_info "All tests passed!"
-	fi
-
-	log_info "Build process completed successfully!"
-	log_info "Build directory: $BUILD_DIR"
-	log_info "Library: $BUILD_DIR/src/libbloom-boba.a"
+	# Dispatch action
+	case "$ACTION" in
+	build)
+		log_info "Starting build process for $PROJECT_NAME"
+		do_build
+		;;
+	format)
+		format_sources
+		;;
+	esac
 }
 
 # Run main function with all arguments
