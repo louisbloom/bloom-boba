@@ -13,40 +13,43 @@
 static int tests_run = 0;
 static int tests_passed = 0;
 
-#define RUN_TEST(fn)                                                           \
-    do {                                                                        \
-        tests_run++;                                                            \
-        fn();                                                                   \
-        tests_passed++;                                                         \
-        printf("  PASS: %s\n", #fn);                                            \
+#define RUN_TEST(fn)                 \
+    do {                             \
+        tests_run++;                 \
+        fn();                        \
+        tests_passed++;              \
+        printf("  PASS: %s\n", #fn); \
     } while (0)
 
 /* ---------- helpers ---------- */
 
 /* Send a string of ASCII characters to the input */
-static void send_string(TuiTextInput *input, const char *s) {
+static void send_string(TuiTextInput *input, const char *s)
+{
     for (const char *p = s; *p; p++) {
         tui_textinput_update(input, tui_msg_char((uint32_t)*p, 0));
     }
 }
 
-static void send_key(TuiTextInput *input, int key) {
+static void send_key(TuiTextInput *input, int key)
+{
     TuiUpdateResult r = tui_textinput_update(input, tui_msg_key(key, 0, 0));
     if (r.cmd)
         tui_cmd_free(r.cmd);
 }
 
 /* Free any command returned by update (avoid leaks in tests) */
-static void send_char(TuiTextInput *input, char c) {
+static void send_char(TuiTextInput *input, char c)
+{
     TuiUpdateResult r = tui_textinput_update(input, tui_msg_char((uint32_t)c, 0));
     if (r.cmd)
         tui_cmd_free(r.cmd);
 }
 
-
 /* ---------- tests ---------- */
 
-static void test_create_and_free(void) {
+static void test_create_and_free(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     assert(input != NULL);
     assert(strcmp(tui_textinput_text(input), "") == 0);
@@ -55,7 +58,8 @@ static void test_create_and_free(void) {
     tui_textinput_free(input);
 }
 
-static void test_create_with_config(void) {
+static void test_create_with_config(void)
+{
     TuiTextInputConfig cfg = {
         .prompt = "> ",
         .width = 40,
@@ -68,7 +72,8 @@ static void test_create_with_config(void) {
     tui_textinput_free(input);
 }
 
-static void test_char_insertion(void) {
+static void test_char_insertion(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -84,7 +89,8 @@ static void test_char_insertion(void) {
     tui_textinput_free(input);
 }
 
-static void test_backspace(void) {
+static void test_backspace(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -96,7 +102,8 @@ static void test_backspace(void) {
     tui_textinput_free(input);
 }
 
-static void test_backspace_at_start(void) {
+static void test_backspace_at_start(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -107,7 +114,8 @@ static void test_backspace_at_start(void) {
     tui_textinput_free(input);
 }
 
-static void test_delete_key(void) {
+static void test_delete_key(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -122,7 +130,8 @@ static void test_delete_key(void) {
     tui_textinput_free(input);
 }
 
-static void test_cursor_left_right(void) {
+static void test_cursor_left_right(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -141,7 +150,8 @@ static void test_cursor_left_right(void) {
     tui_textinput_free(input);
 }
 
-static void test_cursor_left_at_start(void) {
+static void test_cursor_left_at_start(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -151,7 +161,8 @@ static void test_cursor_left_at_start(void) {
     tui_textinput_free(input);
 }
 
-static void test_cursor_right_at_end(void) {
+static void test_cursor_right_at_end(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -164,7 +175,8 @@ static void test_cursor_right_at_end(void) {
     tui_textinput_free(input);
 }
 
-static void test_home_end(void) {
+static void test_home_end(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -180,7 +192,8 @@ static void test_home_end(void) {
     tui_textinput_free(input);
 }
 
-static void test_insert_in_middle(void) {
+static void test_insert_in_middle(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -196,7 +209,8 @@ static void test_insert_in_middle(void) {
     tui_textinput_free(input);
 }
 
-static void test_set_text(void) {
+static void test_set_text(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -206,7 +220,8 @@ static void test_set_text(void) {
     tui_textinput_free(input);
 }
 
-static void test_clear(void) {
+static void test_clear(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -217,7 +232,8 @@ static void test_clear(void) {
     tui_textinput_free(input);
 }
 
-static void test_focus(void) {
+static void test_focus(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
 
     /* Default is focused */
@@ -229,7 +245,8 @@ static void test_focus(void) {
     tui_textinput_free(input);
 }
 
-static void test_unfocused_ignores_input(void) {
+static void test_unfocused_ignores_input(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     /* Explicitly unfocus (default is focused) */
     tui_textinput_set_focus(input, 0);
@@ -239,7 +256,8 @@ static void test_unfocused_ignores_input(void) {
     tui_textinput_free(input);
 }
 
-static void test_history_navigation(void) {
+static void test_history_navigation(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
     tui_textinput_set_history_size(input, 10);
@@ -268,7 +286,8 @@ static void test_history_navigation(void) {
     tui_textinput_free(input);
 }
 
-static void test_tab_emits_command(void) {
+static void test_tab_emits_command(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -288,7 +307,8 @@ static void test_tab_emits_command(void) {
     tui_textinput_free(input);
 }
 
-static void test_tab_word_start(void) {
+static void test_tab_word_start(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -305,7 +325,8 @@ static void test_tab_word_start(void) {
     tui_textinput_free(input);
 }
 
-static void test_insert_completion(void) {
+static void test_insert_completion(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -319,7 +340,8 @@ static void test_insert_completion(void) {
     tui_textinput_free(input);
 }
 
-static void test_view_output(void) {
+static void test_view_output(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -336,7 +358,8 @@ static void test_view_output(void) {
     tui_textinput_free(input);
 }
 
-static void test_set_cursor(void) {
+static void test_set_cursor(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
 
@@ -351,8 +374,9 @@ static void test_set_cursor(void) {
     tui_textinput_free(input);
 }
 
-static void test_line_count(void) {
-    TuiTextInputConfig cfg = {.multiline = 1};
+static void test_line_count(void)
+{
+    TuiTextInputConfig cfg = { .multiline = 1 };
     TuiTextInput *input = tui_textinput_create(&cfg);
     tui_textinput_set_focus(input, 1);
 
@@ -367,7 +391,8 @@ static void test_line_count(void) {
     tui_textinput_free(input);
 }
 
-static void test_prompt(void) {
+static void test_prompt(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_focus(input, 1);
     tui_textinput_set_prompt(input, "$ ");
@@ -385,20 +410,23 @@ static void test_prompt(void) {
     tui_textinput_free(input);
 }
 
-static void test_get_height_no_dividers(void) {
+static void test_get_height_no_dividers(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     assert(tui_textinput_get_height(input) == 1);
     tui_textinput_free(input);
 }
 
-static void test_get_height_with_dividers(void) {
+static void test_get_height_with_dividers(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     tui_textinput_set_show_dividers(input, 1);
     assert(tui_textinput_get_height(input) == 3);
     tui_textinput_free(input);
 }
 
-static void test_get_height_dynamic(void) {
+static void test_get_height_dynamic(void)
+{
     TuiTextInput *input = tui_textinput_create(NULL);
     assert(tui_textinput_get_height(input) == 1);
     tui_textinput_set_show_dividers(input, 1);
@@ -410,7 +438,8 @@ static void test_get_height_dynamic(void) {
 
 /* ---------- main ---------- */
 
-int main(void) {
+int main(void)
+{
     printf("textinput tests:\n");
 
     RUN_TEST(test_create_and_free);

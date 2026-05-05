@@ -17,75 +17,82 @@
 #include "../msg.h"
 
 /* Text input model */
-typedef struct TuiTextInput {
-  TuiModel base; /* Base model for component interface */
+typedef struct TuiTextInput
+{
+    TuiModel base; /* Base model for component interface */
 
-  char *text;          /* UTF-8 text content */
-  size_t text_len;     /* Current text length in bytes */
-  size_t text_cap;     /* Allocated capacity */
+    char *text;      /* UTF-8 text content */
+    size_t text_len; /* Current text length in bytes */
+    size_t text_cap; /* Allocated capacity */
 
-  size_t cursor_byte;  /* Cursor position in bytes */
-  size_t cursor_col;   /* Visual column (0-indexed) */
-  size_t cursor_row;   /* Visual row (0-indexed) */
+    size_t cursor_byte; /* Cursor position in bytes */
+    size_t cursor_col;  /* Visual column (0-indexed) */
+    size_t cursor_row;  /* Visual row (0-indexed) */
 
-  int width;           /* Max width (0 = unlimited) */
-  int height;          /* Max visible height (0 = grow to fit) */
-  int scroll_offset;   /* Vertical scroll position (first visible line) */
-  int offset;          /* Horizontal scroll: left edge (codepoint index) */
-  int offset_right;    /* Horizontal scroll: right edge (codepoint index) */
+    int width;         /* Max width (0 = unlimited) */
+    int height;        /* Max visible height (0 = grow to fit) */
+    int scroll_offset; /* Vertical scroll position (first visible line) */
+    int offset;        /* Horizontal scroll: left edge (codepoint index) */
+    int offset_right;  /* Horizontal scroll: right edge (codepoint index) */
 
-  const char *prompt;  /* Optional prompt string (not owned) */
-  int prompt_len;      /* Cached prompt display width */
-  const char *continuation_prompt; /* Prompt for continuation lines (not owned) */
-  int continuation_prompt_len;     /* Cached continuation prompt display width */
+    const char *prompt;              /* Optional prompt string (not owned) */
+    int prompt_len;                  /* Cached prompt display width */
+    const char *continuation_prompt; /* Prompt for continuation lines (not owned) */
+    int continuation_prompt_len;     /* Cached continuation prompt display width */
 
-  int focused;         /* Whether component has focus */
-  int multiline;       /* Allow multiple lines (Enter inserts newline) */
-  int show_prompt;     /* Whether to display the prompt (default: 1) */
-  int show_dividers;       /* Whether to show dividers above/below (default: 0) */
-  int terminal_width;      /* Terminal width for divider rendering (0 = 80) */
-  int terminal_row;        /* Row for absolute positioning (1-indexed, 0 = not set) */
-  char divider_color[32];  /* Custom ANSI color for dividers (empty = SGR_DIM) */
-  char prompt_color[32];   /* Custom ANSI color for prompt (empty = no color) */
+    int focused;            /* Whether component has focus */
+    int multiline;          /* Allow multiple lines (Enter inserts newline) */
+    int show_prompt;        /* Whether to display the prompt (default: 1) */
+    int show_dividers;      /* Whether to show dividers above/below (default: 0) */
+    int terminal_width;     /* Terminal width for divider rendering (0 = 80) */
+    int terminal_row;       /* Row for absolute positioning (1-indexed, 0 = not set) */
+    char divider_color[32]; /* Custom ANSI color for dividers (empty = SGR_DIM) */
+    char prompt_color[32];  /* Custom ANSI color for prompt (empty = no color) */
 
-  /* History management */
-  char **history;      /* Array of past input lines */
-  int history_size;    /* Max history entries */
-  int history_count;   /* Current number of history entries */
-  int history_pos;     /* Navigation position (-1 = current input) */
-  char *saved_input;   /* Saved current input when navigating history */
+    /* History management */
+    char **history;    /* Array of past input lines */
+    int history_size;  /* Max history entries */
+    int history_count; /* Current number of history entries */
+    int history_pos;   /* Navigation position (-1 = current input) */
+    char *saved_input; /* Saved current input when navigating history */
 
-  /* Tab completion */
-  char *word_chars;                /* Characters that form words for completion and word movement */
+    /* Tab completion */
+    char *word_chars; /* Characters that form words for completion and word movement */
 
-  /* Kill/yank buffer */
-  char *kill_buf;          /* Killed text (malloc'd, NULL initially) */
-  size_t kill_buf_len;     /* Length of killed text in bytes */
-  int last_was_kill;       /* Whether previous key was a kill command */
+    /* Kill/yank buffer */
+    char *kill_buf;      /* Killed text (malloc'd, NULL initially) */
+    size_t kill_buf_len; /* Length of killed text in bytes */
+    int last_was_kill;   /* Whether previous key was a kill command */
 
-  /* Undo stack */
-  struct { char *text; size_t text_len; size_t cursor_byte; } *undo_stack;
-  int undo_count;
-  int undo_cap;
-  int ctrl_x_prefix;       /* Waiting for second key after C-x */
+    /* Undo stack */
+    struct
+    {
+        char *text;
+        size_t text_len;
+        size_t cursor_byte;
+    } *undo_stack;
+    int undo_count;
+    int undo_cap;
+    int ctrl_x_prefix; /* Waiting for second key after C-x */
 
-  /* Pre-edit snapshot buffer (reused across keystrokes) */
-  char *snap_buf;
-  size_t snap_buf_cap;
-  size_t snap_len;
-  size_t snap_cursor;
-  int snap_valid;            /* Whether snapshot should be committed */
+    /* Pre-edit snapshot buffer (reused across keystrokes) */
+    char *snap_buf;
+    size_t snap_buf_cap;
+    size_t snap_len;
+    size_t snap_cursor;
+    int snap_valid; /* Whether snapshot should be committed */
 
-  int echo_mode;             /* 0 = normal, 1 = masked (show * per codepoint) */
+    int echo_mode; /* 0 = normal, 1 = masked (show * per codepoint) */
 } TuiTextInput;
 
 /* Configuration for creating text input */
-typedef struct TuiTextInputConfig {
-  const char *placeholder; /* Placeholder text (shown when empty) */
-  const char *prompt;      /* Prompt string (e.g., "> ") */
-  int width;               /* Max width (0 = unlimited) */
-  int height;              /* Max height (0 = grow to fit) */
-  int multiline;           /* Allow multiple lines */
+typedef struct TuiTextInputConfig
+{
+    const char *placeholder; /* Placeholder text (shown when empty) */
+    const char *prompt;      /* Prompt string (e.g., "> ") */
+    int width;               /* Max width (0 = unlimited) */
+    int height;              /* Max height (0 = grow to fit) */
+    int multiline;           /* Allow multiple lines */
 } TuiTextInputConfig;
 
 /* Create a new text input component

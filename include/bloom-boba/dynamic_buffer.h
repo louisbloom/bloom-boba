@@ -6,10 +6,11 @@
 #include <stddef.h>
 
 /* Dynamic buffer structure */
-typedef struct DynamicBuffer {
-  char *data;  /* Buffer data */
-  size_t size; /* Current buffer size (allocated) */
-  size_t len;  /* Current data length (used) */
+typedef struct DynamicBuffer
+{
+    char *data;  /* Buffer data */
+    size_t size; /* Current buffer size (allocated) */
+    size_t len;  /* Current data length (used) */
 } DynamicBuffer;
 
 /* Create a new dynamic buffer with initial size */

@@ -16,36 +16,38 @@
 #include <stddef.h>
 
 /* A single line in the viewport */
-typedef struct TuiViewportLine {
-  char *text;          /* Line content (owned, null-terminated) */
-  size_t len;          /* Byte length */
-  size_t display_width; /* Visual width (excludes ANSI sequences) */
-  int visual_lines;    /* Number of screen rows this line occupies (>= 1) */
+typedef struct TuiViewportLine
+{
+    char *text;           /* Line content (owned, null-terminated) */
+    size_t len;           /* Byte length */
+    size_t display_width; /* Visual width (excludes ANSI sequences) */
+    int visual_lines;     /* Number of screen rows this line occupies (>= 1) */
 } TuiViewportLine;
 
 /* Viewport model */
-typedef struct TuiViewport {
-  TuiModel base;
+typedef struct TuiViewport
+{
+    TuiModel base;
 
-  /* Line storage */
-  TuiViewportLine *lines;
-  size_t line_count;
-  size_t line_capacity;
+    /* Line storage */
+    TuiViewportLine *lines;
+    size_t line_count;
+    size_t line_capacity;
 
-  /* Viewport state */
-  int width;
-  int height;
-  size_t y_offset;  /* First visible visual line index */
-  int auto_scroll;  /* Scroll to bottom on new content */
-  int max_lines;    /* Max lines to keep (memory limit, 0 = unlimited) */
+    /* Viewport state */
+    int width;
+    int height;
+    size_t y_offset; /* First visible visual line index */
+    int auto_scroll; /* Scroll to bottom on new content */
+    int max_lines;   /* Max lines to keep (memory limit, 0 = unlimited) */
 
-  /* Wrapping */
-  size_t total_visual_lines; /* Sum of all lines' visual_lines */
-  int wrap_mode;             /* 0 = clip (truncate at width), 1 = wrap (default) */
+    /* Wrapping */
+    size_t total_visual_lines; /* Sum of all lines' visual_lines */
+    int wrap_mode;             /* 0 = clip (truncate at width), 1 = wrap (default) */
 
-  /* Render position (absolute, 1-indexed) */
-  int render_row; /* Starting row */
-  int render_col; /* Starting column */
+    /* Render position (absolute, 1-indexed) */
+    int render_row; /* Starting row */
+    int render_col; /* Starting column */
 } TuiViewport;
 
 /* Create a new viewport */

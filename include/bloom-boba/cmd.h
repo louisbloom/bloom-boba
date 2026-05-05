@@ -14,22 +14,23 @@
 typedef struct TuiCmd TuiCmd;
 
 /* Command type enumeration */
-typedef enum {
-  TUI_CMD_NONE = 0,     /* No command / null command */
-  TUI_CMD_QUIT,         /* Quit the application */
-  TUI_CMD_BATCH,        /* Batch of commands to execute */
-  TUI_CMD_LINE_SUBMIT,  /* Line submitted (contains line text) */
-  TUI_CMD_TAB_COMPLETE, /* Tab pressed (contains prefix and word position) */
-  TUI_CMD_ENTER_ALT_SCREEN,           /* Enter alternate screen buffer */
-  TUI_CMD_EXIT_ALT_SCREEN,            /* Exit alternate screen buffer */
-  TUI_CMD_ENABLE_MOUSE,               /* Enable mouse tracking */
-  TUI_CMD_DISABLE_MOUSE,              /* Disable mouse tracking */
-  TUI_CMD_ENABLE_KEYBOARD_ENHANCEMENT, /* Enable kitty keyboard protocol */
-  TUI_CMD_DISABLE_KEYBOARD_ENHANCEMENT, /* Disable kitty keyboard protocol */
-  TUI_CMD_SHOW_CURSOR,                /* Show cursor */
-  TUI_CMD_HIDE_CURSOR,                /* Hide cursor */
-  TUI_CMD_SET_WINDOW_TITLE,           /* Set terminal window title */
-  TUI_CMD_CUSTOM_BASE = 1000, /* Base for application-defined commands */
+typedef enum
+{
+    TUI_CMD_NONE = 0,                     /* No command / null command */
+    TUI_CMD_QUIT,                         /* Quit the application */
+    TUI_CMD_BATCH,                        /* Batch of commands to execute */
+    TUI_CMD_LINE_SUBMIT,                  /* Line submitted (contains line text) */
+    TUI_CMD_TAB_COMPLETE,                 /* Tab pressed (contains prefix and word position) */
+    TUI_CMD_ENTER_ALT_SCREEN,             /* Enter alternate screen buffer */
+    TUI_CMD_EXIT_ALT_SCREEN,              /* Exit alternate screen buffer */
+    TUI_CMD_ENABLE_MOUSE,                 /* Enable mouse tracking */
+    TUI_CMD_DISABLE_MOUSE,                /* Disable mouse tracking */
+    TUI_CMD_ENABLE_KEYBOARD_ENHANCEMENT,  /* Enable kitty keyboard protocol */
+    TUI_CMD_DISABLE_KEYBOARD_ENHANCEMENT, /* Disable kitty keyboard protocol */
+    TUI_CMD_SHOW_CURSOR,                  /* Show cursor */
+    TUI_CMD_HIDE_CURSOR,                  /* Hide cursor */
+    TUI_CMD_SET_WINDOW_TITLE,             /* Set terminal window title */
+    TUI_CMD_CUSTOM_BASE = 1000,           /* Base for application-defined commands */
 } TuiCmdType;
 
 /* Command callback function type
@@ -38,25 +39,30 @@ typedef enum {
 typedef TuiMsg (*TuiCmdCallback)(void *data);
 
 /* Command structure */
-struct TuiCmd {
-  TuiCmdType type;
-  union {
-    struct {
-      TuiCmdCallback callback;
-      void *data;
-      void (*free_data)(void *); /* Optional cleanup function for data */
-    } custom;
-    struct {
-      TuiCmd **cmds;
-      int count;
-    } batch;
-    char *line; /* For TUI_CMD_LINE_SUBMIT - owned, must be freed */
-    struct {
-      char *prefix;  /* Word prefix at cursor - owned, must be freed */
-      int word_start; /* Byte offset where the word starts in input */
-    } tab_complete;
-    char *window_title; /* For TUI_CMD_SET_WINDOW_TITLE - owned, must be freed */
-  } payload;
+struct TuiCmd
+{
+    TuiCmdType type;
+    union
+    {
+        struct
+        {
+            TuiCmdCallback callback;
+            void *data;
+            void (*free_data)(void *); /* Optional cleanup function for data */
+        } custom;
+        struct
+        {
+            TuiCmd **cmds;
+            int count;
+        } batch;
+        char *line; /* For TUI_CMD_LINE_SUBMIT - owned, must be freed */
+        struct
+        {
+            char *prefix;   /* Word prefix at cursor - owned, must be freed */
+            int word_start; /* Byte offset where the word starts in input */
+        } tab_complete;
+        char *window_title; /* For TUI_CMD_SET_WINDOW_TITLE - owned, must be freed */
+    } payload;
 };
 
 /* Command constructor functions */

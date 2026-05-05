@@ -1,24 +1,9 @@
 #!/bin/sh
-# autogen.sh - Bootstrap the autotools build system
-
+# autogen.sh - regenerate version, then bootstrap the autotools build system.
 set -e
 
-echo "Generating build system files..."
-echo
+srcdir=$(cd "$(dirname "$0")" && pwd)
+"$srcdir/build-aux/git-version.sh" "$srcdir" >"$srcdir/version"
+echo "Version: $(cat "$srcdir/version")"
 
-# Generate aclocal.m4 from m4/*.m4 macros
-aclocal -I m4
-
-# Generate configure from configure.ac
-autoconf
-
-# Generate config.h.in from configure.ac
-autoheader
-
-# Generate Makefile.in files from Makefile.am files
-automake --add-missing --copy --foreign
-
-echo
-echo "Now run:"
-echo "  ./configure"
-echo "  make"
+exec autoreconf -fi "$@"

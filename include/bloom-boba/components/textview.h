@@ -15,23 +15,25 @@
 #include <stddef.h>
 
 /* Text view configuration */
-typedef struct {
-  int height; /* Display height in lines (0 = auto-size to terminal) */
+typedef struct
+{
+    int height; /* Display height in lines (0 = auto-size to terminal) */
 } TuiTextViewConfig;
 
 /* Text view model */
-typedef struct TuiTextView {
-  TuiModel base; /* Component base type */
-  char *content;        /* Text content buffer */
-  size_t content_len;   /* Current content length */
-  size_t content_cap;   /* Allocated capacity */
+typedef struct TuiTextView
+{
+    TuiModel base;      /* Component base type */
+    char *content;      /* Text content buffer */
+    size_t content_len; /* Current content length */
+    size_t content_cap; /* Allocated capacity */
 
-  int height;           /* Display height in lines (0 = use terminal height) */
-  int terminal_height;  /* Terminal height for calculating display area */
-  int terminal_width;   /* Terminal width */
+    int height;          /* Display height in lines (0 = use terminal height) */
+    int terminal_height; /* Terminal height for calculating display area */
+    int terminal_width;  /* Terminal width */
 
-  int scroll_offset;    /* Lines scrolled from bottom (0 = at bottom) */
-  int auto_scroll;      /* Auto-scroll to bottom on new content (default: 1) */
+    int scroll_offset; /* Lines scrolled from bottom (0 = at bottom) */
+    int auto_scroll;   /* Auto-scroll to bottom on new content (default: 1) */
 } TuiTextView;
 
 /* Create a new text view component

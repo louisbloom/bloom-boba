@@ -11,24 +11,26 @@
 static int tests_run = 0;
 static int tests_passed = 0;
 
-#define RUN_TEST(fn)                                                           \
-    do {                                                                        \
-        tests_run++;                                                            \
-        fn();                                                                   \
-        tests_passed++;                                                         \
-        printf("  PASS: %s\n", #fn);                                            \
+#define RUN_TEST(fn)                 \
+    do {                             \
+        tests_run++;                 \
+        fn();                        \
+        tests_passed++;              \
+        printf("  PASS: %s\n", #fn); \
     } while (0)
 
 /* ---------- tests ---------- */
 
-static void test_create_and_free(void) {
+static void test_create_and_free(void)
+{
     TuiViewport *vp = tui_viewport_create();
     assert(vp != NULL);
     assert(tui_viewport_line_count(vp) == 0);
     tui_viewport_free(vp);
 }
 
-static void test_append_single_line(void) {
+static void test_append_single_line(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 24);
 
@@ -39,7 +41,8 @@ static void test_append_single_line(void) {
     tui_viewport_free(vp);
 }
 
-static void test_append_multiple_lines(void) {
+static void test_append_multiple_lines(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 24);
 
@@ -51,7 +54,8 @@ static void test_append_multiple_lines(void) {
     tui_viewport_free(vp);
 }
 
-static void test_append_no_trailing_newline(void) {
+static void test_append_no_trailing_newline(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 24);
 
@@ -62,7 +66,8 @@ static void test_append_no_trailing_newline(void) {
     tui_viewport_free(vp);
 }
 
-static void test_clear(void) {
+static void test_clear(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 24);
 
@@ -75,7 +80,8 @@ static void test_clear(void) {
     tui_viewport_free(vp);
 }
 
-static void test_scroll_down_and_up(void) {
+static void test_scroll_down_and_up(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 5);
     tui_viewport_set_auto_scroll(vp, 0);
@@ -103,7 +109,8 @@ static void test_scroll_down_and_up(void) {
     tui_viewport_free(vp);
 }
 
-static void test_auto_scroll(void) {
+static void test_auto_scroll(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 5);
     tui_viewport_set_auto_scroll(vp, 1);
@@ -121,7 +128,8 @@ static void test_auto_scroll(void) {
     tui_viewport_free(vp);
 }
 
-static void test_page_up_down(void) {
+static void test_page_up_down(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 5);
     tui_viewport_set_auto_scroll(vp, 0);
@@ -143,7 +151,8 @@ static void test_page_up_down(void) {
     tui_viewport_free(vp);
 }
 
-static void test_max_lines(void) {
+static void test_max_lines(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 24);
     tui_viewport_set_max_lines(vp, 10);
@@ -161,7 +170,8 @@ static void test_max_lines(void) {
     tui_viewport_free(vp);
 }
 
-static void test_view_output(void) {
+static void test_view_output(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 80, 24);
     tui_viewport_set_render_position(vp, 1, 1);
@@ -178,7 +188,8 @@ static void test_view_output(void) {
     tui_viewport_free(vp);
 }
 
-static void test_set_size(void) {
+static void test_set_size(void)
+{
     TuiViewport *vp = tui_viewport_create();
 
     tui_viewport_set_size(vp, 120, 40);
@@ -188,7 +199,8 @@ static void test_set_size(void) {
     tui_viewport_free(vp);
 }
 
-static void test_wrap_mode(void) {
+static void test_wrap_mode(void)
+{
     TuiViewport *vp = tui_viewport_create();
     tui_viewport_set_size(vp, 10, 5);
 
@@ -203,7 +215,8 @@ static void test_wrap_mode(void) {
 
 /* ---------- main ---------- */
 
-int main(void) {
+int main(void)
+{
     printf("viewport tests:\n");
 
     RUN_TEST(test_create_and_free);

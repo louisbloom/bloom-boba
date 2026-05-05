@@ -15,7 +15,8 @@
 #include "../msg.h"
 
 /* Status bar model */
-typedef struct TuiStatusBar {
+typedef struct TuiStatusBar
+{
     TuiModel base; /* Base model for component interface */
 
     /* Mode indicator (left, persistent) */

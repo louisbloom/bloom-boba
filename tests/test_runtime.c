@@ -25,19 +25,20 @@
 static int tests_run = 0;
 static int tests_passed = 0;
 
-#define RUN_TEST(fn)                                                           \
-    do {                                                                        \
-        tests_run++;                                                            \
-        fn();                                                                   \
-        tests_passed++;                                                         \
-        printf("  PASS: %s\n", #fn);                                            \
+#define RUN_TEST(fn)                 \
+    do {                             \
+        tests_run++;                 \
+        fn();                        \
+        tests_passed++;              \
+        printf("  PASS: %s\n", #fn); \
     } while (0)
 
 /* ========================================================================
  * Minimal test component — quits immediately on first update
  * ======================================================================== */
 
-typedef struct {
+typedef struct
+{
     TuiModel base;
     int update_count;
     int window_size_received;
@@ -255,7 +256,7 @@ static void test_start_stop_cycle(void)
 /* Test get_width/get_height return stored dimensions */
 static void test_get_dimensions(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -316,7 +317,7 @@ static void test_window_size_message(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -336,7 +337,7 @@ static void test_window_size_message(void)
 /* Test that tui_runtime_quit sets quit_requested and stops running */
 static void test_runtime_quit(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
     assert(rt->running == 1);
@@ -352,7 +353,7 @@ static void test_runtime_quit(void)
 /* Test that started flag is initially 0 */
 static void test_started_initially_zero(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
     assert(rt->started == 0);
@@ -406,7 +407,8 @@ static void test_runtime_run_immediate_quit(void)
 #define TRACK_MSG_TYPE (TUI_MSG_CUSTOM_BASE + 42)
 #define TRACK_MAX_MSGS 32
 
-typedef struct {
+typedef struct
+{
     TuiModel base;
     int received[TRACK_MAX_MSGS]; /* custom data values received */
     int received_count;
@@ -442,10 +444,11 @@ static TuiComponent track_component = {
 
 static TuiRuntime *s_reentrant_runtime = NULL;
 
-#define REENTRANT_MSG_FIRST (TUI_MSG_CUSTOM_BASE + 100)
+#define REENTRANT_MSG_FIRST  (TUI_MSG_CUSTOM_BASE + 100)
 #define REENTRANT_MSG_SECOND (TUI_MSG_CUSTOM_BASE + 101)
 
-typedef struct {
+typedef struct
+{
     TuiModel base;
     int first_received;
     int second_received;
@@ -501,7 +504,7 @@ static TuiMsg cmd_tracking_callback(void *data)
 /* Test that queues are initialized on create */
 static void test_queue_initialized(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -519,7 +522,7 @@ static void test_queue_initialized(void)
 /* Test that wakeup pipe is created */
 static void test_wakeup_pipe_created(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -544,7 +547,7 @@ static void test_post_and_drain(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -575,7 +578,7 @@ static void test_schedule_and_drain(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -602,7 +605,7 @@ static void test_schedule_and_drain(void)
 /* Test drain with empty queues is a no-op */
 static void test_drain_empty(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -631,7 +634,7 @@ static void test_post_null(void)
 /* Test schedule with NULL runtime or NULL cmd is safe */
 static void test_schedule_null(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -651,7 +654,7 @@ static void test_post_ordering(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -682,7 +685,7 @@ static void test_post_reentrancy(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&reentrant_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -713,7 +716,7 @@ static void test_commands_before_messages(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -748,7 +751,7 @@ static void test_queue_growth(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -776,7 +779,7 @@ static void test_schedule_quit(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
     assert(rt->running == 1);
@@ -794,7 +797,7 @@ static void test_schedule_quit(void)
 /* Test that unprocessed commands are freed on runtime_free (no leak) */
 static void test_free_with_pending_commands(void)
 {
-    TuiRuntimeConfig cfg = {.output = stdout};
+    TuiRuntimeConfig cfg = { .output = stdout };
     TuiRuntime *rt = tui_runtime_create(&noop_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -813,7 +816,7 @@ static void test_double_drain(void)
     FILE *devnull = fopen("/dev/null", "w");
     assert(devnull != NULL);
 
-    TuiRuntimeConfig cfg = {.output = devnull};
+    TuiRuntimeConfig cfg = { .output = devnull };
     TuiRuntime *rt = tui_runtime_create(&track_component, NULL, &cfg);
     assert(rt != NULL);
 
@@ -839,7 +842,8 @@ static void test_double_drain(void)
 
 #define WAKEUP_MSG_TYPE (TUI_MSG_CUSTOM_BASE + 200)
 
-typedef struct {
+typedef struct
+{
     TuiModel base;
     int got_wakeup;
 } WakeupModel;

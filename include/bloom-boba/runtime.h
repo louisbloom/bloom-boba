@@ -52,57 +52,59 @@ typedef void (*TuiOnResize)(int width, int height, void *user_data);
 typedef void (*TuiOnStdinProcessed)(void *user_data);
 
 /* Runtime configuration */
-typedef struct TuiRuntimeConfig {
-  int use_alternate_screen;        /* Use alternate screen buffer */
-  int hide_cursor;                 /* Hide cursor during rendering */
-  int raw_mode;                    /* Enable raw terminal mode */
-  int enable_mouse;                /* Enable mouse tracking */
-  int enable_keyboard_enhancement; /* Enable kitty keyboard protocol */
-  FILE *output;                    /* Output target (NULL = stdout) */
-  TuiCmdHandler cmd_handler;       /* App command callback */
-  void *cmd_handler_data;          /* Callback context */
+typedef struct TuiRuntimeConfig
+{
+    int use_alternate_screen;        /* Use alternate screen buffer */
+    int hide_cursor;                 /* Hide cursor during rendering */
+    int raw_mode;                    /* Enable raw terminal mode */
+    int enable_mouse;                /* Enable mouse tracking */
+    int enable_keyboard_enhancement; /* Enable kitty keyboard protocol */
+    FILE *output;                    /* Output target (NULL = stdout) */
+    TuiCmdHandler cmd_handler;       /* App command callback */
+    void *cmd_handler_data;          /* Callback context */
 
-  /* Event loop callbacks (used by tui_runtime_run) */
-  TuiGetExternalFd get_external_fd;   /* External FD to poll */
-  TuiOnExternalReady on_external_ready; /* External FD ready */
-  TuiOnTick on_tick;                  /* Tick (~100ms timeout) */
-  TuiGetTickTimeoutMs get_tick_timeout_ms; /* Dynamic tick timeout */
-  TuiOnResize on_resize;              /* Terminal resized */
-  TuiOnStdinProcessed on_stdin_processed; /* After stdin processed */
-  void *event_data;                   /* Context pointer for event callbacks */
+    /* Event loop callbacks (used by tui_runtime_run) */
+    TuiGetExternalFd get_external_fd;        /* External FD to poll */
+    TuiOnExternalReady on_external_ready;    /* External FD ready */
+    TuiOnTick on_tick;                       /* Tick (~100ms timeout) */
+    TuiGetTickTimeoutMs get_tick_timeout_ms; /* Dynamic tick timeout */
+    TuiOnResize on_resize;                   /* Terminal resized */
+    TuiOnStdinProcessed on_stdin_processed;  /* After stdin processed */
+    void *event_data;                        /* Context pointer for event callbacks */
 } TuiRuntimeConfig;
 
 /* Runtime state */
-struct TuiRuntime {
-  TuiComponent *component;     /* Component interface */
-  TuiModel *model;             /* Current model state */
-  TuiInputParser *parser;      /* Input parser */
-  DynamicBuffer *view_buf;     /* Buffer for view rendering */
-  TuiRuntimeConfig config;     /* Runtime configuration */
-  FILE *output;                /* Resolved output target */
-  int running;                 /* Whether runtime is running */
-  int quit_requested;          /* Quit has been requested */
-  int started;                 /* Idempotent start/stop guard */
-  int in_alt_screen;           /* Currently in alternate screen buffer */
-  int term_width;              /* Current terminal width */
-  int term_height;             /* Current terminal height */
+struct TuiRuntime
+{
+    TuiComponent *component; /* Component interface */
+    TuiModel *model;         /* Current model state */
+    TuiInputParser *parser;  /* Input parser */
+    DynamicBuffer *view_buf; /* Buffer for view rendering */
+    TuiRuntimeConfig config; /* Runtime configuration */
+    FILE *output;            /* Resolved output target */
+    int running;             /* Whether runtime is running */
+    int quit_requested;      /* Quit has been requested */
+    int started;             /* Idempotent start/stop guard */
+    int in_alt_screen;       /* Currently in alternate screen buffer */
+    int term_width;          /* Current terminal width */
+    int term_height;         /* Current terminal height */
 #ifndef _WIN32
-  struct termios orig_termios; /* Saved terminal settings */
-  int raw_mode_active;         /* Raw mode currently enabled */
+    struct termios orig_termios; /* Saved terminal settings */
+    int raw_mode_active;         /* Raw mode currently enabled */
 #endif
 
-  /* Message queue (for tui_runtime_post) */
-  TuiMsg *msg_queue;
-  int msg_queue_count;
-  int msg_queue_cap;
+    /* Message queue (for tui_runtime_post) */
+    TuiMsg *msg_queue;
+    int msg_queue_count;
+    int msg_queue_cap;
 
-  /* Command queue (for tui_runtime_schedule) */
-  TuiCmd **cmd_queue;
-  int cmd_queue_count;
-  int cmd_queue_cap;
+    /* Command queue (for tui_runtime_schedule) */
+    TuiCmd **cmd_queue;
+    int cmd_queue_count;
+    int cmd_queue_cap;
 
-  /* Self-pipe for waking select() */
-  int wakeup_pipe[2]; /* [0]=read, [1]=write; -1 if unavailable */
+    /* Self-pipe for waking select() */
+    int wakeup_pipe[2]; /* [0]=read, [1]=write; -1 if unavailable */
 };
 
 /* Create runtime with component
