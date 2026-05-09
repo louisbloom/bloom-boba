@@ -1,12 +1,22 @@
 # bloom-boba
 
-A C library for building terminal user interfaces using the Elm Architecture.
+A C library for building terminal user interfaces. bloom-boba's principal
+purpose is to bring the [Elm Architecture](https://guide.elm-lang.org/architecture/)
+to C, faithfully following the API design of the Charm libraries:
+[Bubbletea](https://github.com/charmbracelet/bubbletea) (runtime),
+[Lipgloss](https://github.com/charmbracelet/lipgloss) (styling), and
+[Bubbles](https://github.com/charmbracelet/bubbles) (components).
+
+The Charm ecosystem (now at [charm.land](https://charm.land)) has released a
+[v2 generation](https://charm.land/blog/v2/) with an evolved API — most
+visibly, components now report cursor placement via a dedicated `Cursor()`
+method instead of emitting positioning sequences inside `view()`. bloom-boba
+is in the process of aligning with v2; the `cursor` slot on `TuiComponent`
+and the runtime cursor handling described below already reflect that work.
 
 ## Why "boba"?
 
-The name pays homage to [Bubbletea](https://github.com/charmbracelet/bubbletea), the
-Go library that brought Elm Architecture to terminal applications. Boba are the
-tapioca pearls in bubble tea.
+The name pays homage to Bubbletea. Boba are the tapioca pearls in bubble tea.
 
 ## What bloom-boba Provides
 
@@ -152,10 +162,16 @@ The component interface follows the Elm Architecture pattern:
 typedef struct TuiComponent {
   TuiInitResult (*init)(void *config);      /* Create model + initial command */
   TuiUpdateResult (*update)(TuiModel *model, TuiMsg msg);  /* Handle message */
-  void (*view)(const TuiModel *model, DynamicBuffer *out); /* Render */
+  void (*view)(const TuiModel *model, DynamicBuffer *out); /* Render content */
+  TuiCursor (*cursor)(const TuiModel *model);              /* Cursor placement (optional) */
   void (*free)(TuiModel *model);            /* Cleanup */
 } TuiComponent;
 ```
+
+The `cursor` slot mirrors Bubbletea v2's `Cursor()` method: components write
+content only in `view()` and report where the hardware cursor should land in
+`cursor()`. Returning `tui_cursor_hidden()` (or leaving the slot NULL) makes
+the runtime keep the cursor hidden for that frame.
 
 ### Init returns (Model, Cmd)
 
@@ -391,6 +407,31 @@ void my_app_view(const MyAppModel *app, DynamicBuffer *out) {
 
   /* Render input area (uses absolute positioning) */
   tui_textinput_view(app->textinput, out);
+}
+```
+
+### Composing Cursor
+
+Children no longer place the hardware cursor inside `view()`; the parent
+delegates `cursor()` to whichever child currently owns it (typically the
+focused one):
+
+```c
+TuiCursor my_app_cursor(const TuiModel *m) {
+  const MyAppModel *app = (const MyAppModel *)m;
+  return tui_textinput_cursor_pos(app->textinput);
+}
+```
+
+For multi-focus parents (e.g., a text input alongside a copy-mode viewport),
+branch on the focused child:
+
+```c
+TuiCursor my_app_cursor(const TuiModel *m) {
+  const MyAppModel *app = (const MyAppModel *)m;
+  return app->focus_idx == 0
+      ? tui_textinput_cursor_pos(app->input)
+      : tui_viewport_cursor_pos(app->viewport);
 }
 ```
 
