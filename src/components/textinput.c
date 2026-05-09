@@ -768,7 +768,7 @@ void tui_textinput_free(TuiTextInput *input)
 /* Update text input with message */
 TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
 {
-    if (!input || !input->focused)
+    if (!input)
         return tui_update_result_none();
 
     if (msg.type == TUI_MSG_FOCUS) {
@@ -780,6 +780,9 @@ TuiUpdateResult tui_textinput_update(TuiTextInput *input, TuiMsg msg)
         input->focused = 0;
         return tui_update_result_none();
     }
+
+    if (!input->focused)
+        return tui_update_result_none();
 
     if (msg.type != TUI_MSG_KEY_PRESS)
         return tui_update_result_none();
