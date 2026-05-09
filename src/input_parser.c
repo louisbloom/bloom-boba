@@ -13,7 +13,12 @@ typedef enum
     PARSER_STATE_CSI_MOUSE, /* In SGR mouse sequence (ESC [ <) */
     PARSER_STATE_SS3,       /* In SS3 sequence (ESC O) */
     PARSER_STATE_UTF8,      /* In UTF-8 multi-byte sequence */
+    PARSER_STATE_PASTE,     /* Inside bracketed paste, scanning for ESC[201~ */
 } ParserState;
+
+/* Bracketed-paste end marker: ESC [ 2 0 1 ~ */
+static const unsigned char PASTE_END_MARKER[6] = { 0x1B, '[', '2', '0', '1',
+                                                   '~' };
 
 /* Input parser structure */
 struct TuiInputParser
@@ -23,7 +28,47 @@ struct TuiInputParser
     int seq_len;
     int utf8_remaining;      /* Remaining bytes in UTF-8 sequence */
     uint32_t utf8_codepoint; /* Accumulated UTF-8 codepoint */
+
+    /* Bracketed-paste accumulator (heap, grows geometrically). */
+    unsigned char *paste_buf;
+    size_t paste_len;
+    size_t paste_cap;
+    int paste_match; /* How many bytes of PASTE_END_MARKER matched so far */
+
+    /* Single-slot pending message — feed() can produce one immediate msg
+     * plus one queued msg (used to emit PASTE then PASTE_END together). */
+    int has_pending;
+    TuiMsg pending;
 };
+
+/* Grow paste_buf to hold at least `needed` bytes. Returns 0 on success,
+ * -1 on alloc failure. */
+static int paste_buf_grow(TuiInputParser *p, size_t needed)
+{
+    if (p->paste_cap >= needed)
+        return 0;
+    size_t new_cap = p->paste_cap > 0 ? p->paste_cap : 256;
+    while (new_cap < needed)
+        new_cap *= 2;
+    unsigned char *new_buf =
+        (unsigned char *)realloc(p->paste_buf, new_cap);
+    if (!new_buf)
+        return -1;
+    p->paste_buf = new_buf;
+    p->paste_cap = new_cap;
+    return 0;
+}
+
+/* Append n bytes to paste_buf. Silently drops on alloc failure. */
+static void paste_buf_append(TuiInputParser *p, const unsigned char *data,
+                             size_t n)
+{
+    /* Reserve room for an eventual trailing null on emit. */
+    if (paste_buf_grow(p, p->paste_len + n + 1) < 0)
+        return;
+    memcpy(p->paste_buf + p->paste_len, data, n);
+    p->paste_len += n;
+}
 
 /* Create a new input parser */
 TuiInputParser *tui_input_parser_create(void)
@@ -41,6 +86,7 @@ TuiInputParser *tui_input_parser_create(void)
 void tui_input_parser_free(TuiInputParser *parser)
 {
     if (parser) {
+        free(parser->paste_buf);
         free(parser);
     }
 }
@@ -54,6 +100,10 @@ void tui_input_parser_reset(TuiInputParser *parser)
     parser->seq_len = 0;
     parser->utf8_remaining = 0;
     parser->utf8_codepoint = 0;
+    parser->paste_len = 0;
+    parser->paste_match = 0;
+    parser->has_pending = 0;
+    /* paste_buf retained for reuse across pastes. */
 }
 
 /* Parse CSI sequence and return appropriate key message */
@@ -413,6 +463,25 @@ int tui_input_parser_feed(TuiInputParser *parser, unsigned char byte,
         /* CSI sequences end with a byte in range 0x40-0x7E */
         if (byte >= 0x40 && byte <= 0x7E) {
             parser->seq_buf[parser->seq_len] = '\0';
+
+            /* Bracketed-paste start: ESC [ 2 0 0 ~ */
+            if (byte == '~' && parser->seq_len == 4 &&
+                parser->seq_buf[0] == '2' && parser->seq_buf[1] == '0' &&
+                parser->seq_buf[2] == '0') {
+                *msg = tui_msg_paste_start();
+                parser->state = PARSER_STATE_PASTE;
+                parser->paste_len = 0;
+                parser->paste_match = 0;
+                return 1;
+            }
+            /* Stray paste-end (ESC [ 2 0 1 ~) outside PASTE state — ignore. */
+            if (byte == '~' && parser->seq_len == 4 &&
+                parser->seq_buf[0] == '2' && parser->seq_buf[1] == '0' &&
+                parser->seq_buf[2] == '1') {
+                parser->state = PARSER_STATE_GROUND;
+                return 0;
+            }
+
             *msg = parse_csi_sequence(parser->seq_buf, parser->seq_len);
             parser->state = PARSER_STATE_GROUND;
             return msg->type != TUI_MSG_NONE;
@@ -451,6 +520,50 @@ int tui_input_parser_feed(TuiInputParser *parser, unsigned char byte,
             return 1;
         }
         return 0;
+
+    case PARSER_STATE_PASTE:
+        /* Scan for the 6-byte PASTE_END_MARKER while accumulating data.
+         * Bytes that match a prefix of the marker are held back; if the
+         * match later breaks, the held bytes are flushed to paste_buf. */
+        if (byte == PASTE_END_MARKER[parser->paste_match]) {
+            parser->paste_match++;
+            if (parser->paste_match == 6) {
+                /* Marker complete — emit PASTE now, queue PASTE_END. */
+                parser->state = PARSER_STATE_GROUND;
+                parser->paste_match = 0;
+
+                /* Ensure non-NULL buffer with room for null terminator. */
+                if (paste_buf_grow(parser, parser->paste_len + 1) == 0 &&
+                    parser->paste_buf) {
+                    parser->paste_buf[parser->paste_len] = '\0';
+                }
+
+                *msg = tui_msg_paste((char *)parser->paste_buf,
+                                     parser->paste_len);
+                parser->paste_buf = NULL;
+                parser->paste_cap = 0;
+                parser->paste_len = 0;
+
+                parser->pending = tui_msg_paste_end();
+                parser->has_pending = 1;
+                return 1;
+            }
+            return 0;
+        } else {
+            /* Mismatch — flush any partial-match bytes as paste data. */
+            if (parser->paste_match > 0) {
+                paste_buf_append(parser, PASTE_END_MARKER,
+                                 (size_t)parser->paste_match);
+                parser->paste_match = 0;
+            }
+            /* The current byte might itself start a new match. */
+            if (byte == PASTE_END_MARKER[0]) {
+                parser->paste_match = 1;
+            } else {
+                paste_buf_append(parser, &byte, 1);
+            }
+            return 0;
+        }
     }
 
     return 0;
@@ -464,10 +577,24 @@ int tui_input_parser_parse(TuiInputParser *parser, const unsigned char *input,
         return 0;
 
     int count = 0;
+
+    /* Drain any pending msg from a previous call (e.g. PASTE_END left over
+     * after PASTE filled the output array on the prior parse). */
+    if (parser->has_pending && count < max_msgs) {
+        msgs[count++] = parser->pending;
+        parser->has_pending = 0;
+    }
+
     for (size_t i = 0; i < input_len && count < max_msgs; i++) {
         TuiMsg msg;
         if (tui_input_parser_feed(parser, input[i], &msg)) {
             msgs[count++] = msg;
+            /* feed() may have queued one follow-up (e.g. PASTE_END after
+             * PASTE). Drain it now so caller sees both this batch. */
+            if (parser->has_pending && count < max_msgs) {
+                msgs[count++] = parser->pending;
+                parser->has_pending = 0;
+            }
         }
     }
 

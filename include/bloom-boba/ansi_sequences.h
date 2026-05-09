@@ -27,14 +27,16 @@
 #define ST  ESC "\\" /* ST (String Terminator) = ESC \ */
 
 /* Terminal mode sequences */
-#define ANSI_ENTER_ALT_SCREEN  CSI "?1049h"
-#define ANSI_EXIT_ALT_SCREEN   CSI "?1049l"
-#define ANSI_ENABLE_MOUSE      CSI "?1000h" CSI "?1006h"
-#define ANSI_DISABLE_MOUSE     CSI "?1006l" CSI "?1000l"
-#define ANSI_ENABLE_KITTY_KBD  CSI ">1u"
-#define ANSI_DISABLE_KITTY_KBD CSI "<u"
-#define ANSI_HIDE_CURSOR       CSI "?25l"
-#define ANSI_SHOW_CURSOR       CSI "?25h"
+#define ANSI_ENTER_ALT_SCREEN        CSI "?1049h"
+#define ANSI_EXIT_ALT_SCREEN         CSI "?1049l"
+#define ANSI_ENABLE_MOUSE            CSI "?1000h" CSI "?1006h"
+#define ANSI_DISABLE_MOUSE           CSI "?1006l" CSI "?1000l"
+#define ANSI_ENABLE_KITTY_KBD        CSI ">1u"
+#define ANSI_DISABLE_KITTY_KBD       CSI "<u"
+#define ANSI_ENABLE_BRACKETED_PASTE  CSI "?2004h"
+#define ANSI_DISABLE_BRACKETED_PASTE CSI "?2004l"
+#define ANSI_HIDE_CURSOR             CSI "?25l"
+#define ANSI_SHOW_CURSOR             CSI "?25h"
 
 /* Final characters for control sequences */
 #define CUP_FINAL     "H" /* CUP (Cursor Position) */

@@ -20,6 +20,9 @@ typedef enum
     TUI_MSG_BLUR,               /* Component lost focus */
     TUI_MSG_LINE_SUBMIT,        /* Line submitted (Enter pressed in single-line mode) */
     TUI_MSG_EOF,                /* End of input (Ctrl+D with empty input) */
+    TUI_MSG_PASTE_START,        /* Bracketed paste begins (no payload) */
+    TUI_MSG_PASTE,              /* Bracketed paste payload */
+    TUI_MSG_PASTE_END,          /* Bracketed paste ends (no payload) */
     TUI_MSG_CUSTOM_BASE = 1000, /* Base for application-defined messages */
 } TuiMsgType;
 
@@ -111,6 +114,20 @@ typedef struct
     int height;
 } TuiWindowSizeMsg;
 
+#include <stddef.h> /* size_t */
+
+/* Bracketed-paste payload.
+ *
+ * Memory ownership: text is heap-allocated and owned by the message. The
+ * runtime calls tui_msg_free() on each TuiMsg after dispatch, which frees
+ * text. If a component needs the text beyond its own update() call, it
+ * must copy the bytes. */
+typedef struct
+{
+    char *text; /* UTF-8 paste payload (also null-terminated for convenience) */
+    size_t len; /* Byte length, not counting trailing null */
+} TuiPasteMsg;
+
 /* Main message structure (tagged union) */
 typedef struct
 {
@@ -120,6 +137,7 @@ typedef struct
         TuiKeyMsg key;
         TuiMouseMsg mouse;
         TuiWindowSizeMsg size;
+        TuiPasteMsg paste;
         void *custom; /* For application-defined message data */
     } data;
 } TuiMsg;
@@ -150,6 +168,20 @@ TuiMsg tui_msg_custom(int type, void *data);
 /* Create a mouse message */
 TuiMsg tui_msg_mouse(TuiMouseButton button, TuiMouseAction action, int col,
                      int row, int mods);
+
+/* Create a paste-start message (no payload) */
+TuiMsg tui_msg_paste_start(void);
+
+/* Create a paste message. Takes ownership of `text`; tui_msg_free() will
+ * free it. `text` must be heap-allocated (malloc/realloc). */
+TuiMsg tui_msg_paste(char *text, size_t len);
+
+/* Create a paste-end message (no payload) */
+TuiMsg tui_msg_paste_end(void);
+
+/* Free any heap data owned by a TuiMsg (currently: paste text). No-op for
+ * messages without owned data. Safe to call multiple times. */
+void tui_msg_free(TuiMsg *msg);
 
 /* Check if message is a key press of specific type */
 int tui_msg_is_key(TuiMsg msg, int key);

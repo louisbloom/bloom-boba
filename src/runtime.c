@@ -325,7 +325,14 @@ int tui_runtime_process_input(TuiRuntime *runtime, const unsigned char *input,
                                        MAX_MSGS_PER_FRAME);
 
     for (int i = 0; i < count; i++) {
-        if (!tui_runtime_send(runtime, msgs[i])) {
+        int continuing = tui_runtime_send(runtime, msgs[i]);
+        tui_msg_free(&msgs[i]);
+        if (!continuing) {
+            /* Free remaining un-dispatched messages so paste payloads
+             * don't leak when the app quits mid-batch. */
+            for (int j = i + 1; j < count; j++) {
+                tui_msg_free(&msgs[j]);
+            }
             return 0;
         }
     }
@@ -391,6 +398,10 @@ void tui_runtime_stop(TuiRuntime *runtime)
         runtime_write(runtime, ANSI_DISABLE_KITTY_KBD);
         runtime->cur_kbd_enhancements = TUI_KBD_NONE;
     }
+    if (runtime->cur_bracketed_paste) {
+        runtime_write(runtime, ANSI_DISABLE_BRACKETED_PASTE);
+        runtime->cur_bracketed_paste = 0;
+    }
     if (runtime->cur_mouse_mode != TUI_MOUSE_MODE_NONE) {
         runtime_write(runtime, ANSI_DISABLE_MOUSE);
         runtime->cur_mouse_mode = TUI_MOUSE_MODE_NONE;
@@ -448,6 +459,12 @@ void tui_runtime_flush(TuiRuntime *runtime)
         if (v.kbd_enhancements & TUI_KBD_KITTY)
             fputs(ANSI_ENABLE_KITTY_KBD, fp);
         runtime->cur_kbd_enhancements = v.kbd_enhancements;
+    }
+    if (v.bracketed_paste != runtime->cur_bracketed_paste) {
+        fputs(v.bracketed_paste ? ANSI_ENABLE_BRACKETED_PASTE
+                                : ANSI_DISABLE_BRACKETED_PASTE,
+              fp);
+        runtime->cur_bracketed_paste = v.bracketed_paste;
     }
 
     /* 3. Content. */

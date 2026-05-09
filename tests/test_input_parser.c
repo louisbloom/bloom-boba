@@ -167,6 +167,142 @@ static void test_regular_char_still_parses(void)
     assert(m.data.key.rune == 'a');
 }
 
+/* ----- bracketed paste ------------------------------------------------- */
+
+/* Feed the whole input in one shot and assert exactly `expected` messages
+ * were produced. Caller is responsible for freeing each msg with
+ * tui_msg_free(). */
+static int parse_into(const char *input, size_t input_len, TuiMsg *out,
+                      int max)
+{
+    TuiInputParser *p = tui_input_parser_create();
+    assert(p != NULL);
+    int n = tui_input_parser_parse(p, (const unsigned char *)input, input_len,
+                                   out, max);
+    tui_input_parser_free(p);
+    return n;
+}
+
+static void test_paste_simple(void)
+{
+    const char *input = "\033[200~hello\033[201~";
+    TuiMsg msgs[8];
+    int n = parse_into(input, strlen(input), msgs, 8);
+    assert(n == 3);
+    assert(msgs[0].type == TUI_MSG_PASTE_START);
+    assert(msgs[1].type == TUI_MSG_PASTE);
+    assert(msgs[1].data.paste.len == 5);
+    assert(strcmp(msgs[1].data.paste.text, "hello") == 0);
+    assert(msgs[2].type == TUI_MSG_PASTE_END);
+    for (int i = 0; i < n; i++)
+        tui_msg_free(&msgs[i]);
+}
+
+static void test_paste_empty(void)
+{
+    /* 200~ immediately followed by 201~ — zero-length payload. */
+    const char *input = "\033[200~\033[201~";
+    TuiMsg msgs[8];
+    int n = parse_into(input, strlen(input), msgs, 8);
+    assert(n == 3);
+    assert(msgs[0].type == TUI_MSG_PASTE_START);
+    assert(msgs[1].type == TUI_MSG_PASTE);
+    assert(msgs[1].data.paste.len == 0);
+    assert(msgs[1].data.paste.text != NULL);
+    assert(msgs[1].data.paste.text[0] == '\0');
+    assert(msgs[2].type == TUI_MSG_PASTE_END);
+    for (int i = 0; i < n; i++)
+        tui_msg_free(&msgs[i]);
+}
+
+static void test_paste_split_across_feeds(void)
+{
+    /* Same paste, but fed in two batches via two parse() calls on the
+     * same parser. The second call should drain pending PASTE_END from
+     * the first via the queued-pending path. */
+    TuiInputParser *p = tui_input_parser_create();
+    assert(p != NULL);
+    TuiMsg msgs[8];
+
+    const char *part1 = "\033[200~hel";
+    int n1 = tui_input_parser_parse(p, (const unsigned char *)part1,
+                                    strlen(part1), msgs, 8);
+    /* Only PASTE_START so far. */
+    assert(n1 == 1);
+    assert(msgs[0].type == TUI_MSG_PASTE_START);
+
+    const char *part2 = "lo\033[201~";
+    int n2 = tui_input_parser_parse(p, (const unsigned char *)part2,
+                                    strlen(part2), msgs, 8);
+    assert(n2 == 2);
+    assert(msgs[0].type == TUI_MSG_PASTE);
+    assert(msgs[0].data.paste.len == 5);
+    assert(strcmp(msgs[0].data.paste.text, "hello") == 0);
+    assert(msgs[1].type == TUI_MSG_PASTE_END);
+    tui_msg_free(&msgs[0]);
+    tui_msg_free(&msgs[1]);
+    tui_input_parser_free(p);
+}
+
+static void test_paste_contains_csi_not_reparsed(void)
+{
+    /* Paste containing what looks like a CSI sequence: must NOT be
+     * dispatched as a key/cursor msg. Payload is the literal bytes. */
+    const char *input = "\033[200~ab\033[1;2Hcd\033[201~";
+    TuiMsg msgs[8];
+    int n = parse_into(input, strlen(input), msgs, 8);
+    assert(n == 3);
+    assert(msgs[1].type == TUI_MSG_PASTE);
+    /* Payload: "ab\033[1;2Hcd" = 10 bytes */
+    assert(msgs[1].data.paste.len == 10);
+    assert(memcmp(msgs[1].data.paste.text, "ab\033[1;2Hcd", 10) == 0);
+    for (int i = 0; i < n; i++)
+        tui_msg_free(&msgs[i]);
+}
+
+static void test_paste_contains_bare_esc(void)
+{
+    /* Bare ESC (not followed by [) inside the paste. The terminator
+     * scanner should match \033 then mismatch on the next byte and
+     * flush \033 back into the buffer. */
+    const char *input = "\033[200~x\033yz\033[201~";
+    TuiMsg msgs[8];
+    int n = parse_into(input, strlen(input), msgs, 8);
+    assert(n == 3);
+    assert(msgs[1].type == TUI_MSG_PASTE);
+    assert(msgs[1].data.paste.len == 4);
+    assert(memcmp(msgs[1].data.paste.text, "x\033yz", 4) == 0);
+    for (int i = 0; i < n; i++)
+        tui_msg_free(&msgs[i]);
+}
+
+static void test_paste_grows_beyond_initial_buf(void)
+{
+    /* Force the geometric grow path: paste payload exceeds initial 256
+     * bytes. */
+    char input[2048];
+    char expected[1024];
+    size_t pos = 0;
+    memcpy(input + pos, "\033[200~", 6);
+    pos += 6;
+    /* 1000 'A's */
+    memset(input + pos, 'A', 1000);
+    memset(expected, 'A', 1000);
+    expected[1000] = '\0';
+    pos += 1000;
+    memcpy(input + pos, "\033[201~", 6);
+    pos += 6;
+
+    TuiMsg msgs[8];
+    int n = parse_into(input, pos, msgs, 8);
+    assert(n == 3);
+    assert(msgs[1].type == TUI_MSG_PASTE);
+    assert(msgs[1].data.paste.len == 1000);
+    assert(memcmp(msgs[1].data.paste.text, expected, 1000) == 0);
+    for (int i = 0; i < n; i++)
+        tui_msg_free(&msgs[i]);
+}
+
 int main(void)
 {
     printf("Running input parser tests...\n");
@@ -191,6 +327,13 @@ int main(void)
     RUN_TEST(test_motion_with_ctrl);
 
     RUN_TEST(test_regular_char_still_parses);
+
+    RUN_TEST(test_paste_simple);
+    RUN_TEST(test_paste_empty);
+    RUN_TEST(test_paste_split_across_feeds);
+    RUN_TEST(test_paste_contains_csi_not_reparsed);
+    RUN_TEST(test_paste_contains_bare_esc);
+    RUN_TEST(test_paste_grows_beyond_initial_buf);
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

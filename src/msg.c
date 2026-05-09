@@ -1,6 +1,7 @@
 /* msg.c - Message implementation for bloom-boba TUI library */
 
 #include <bloom-boba/msg.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Create a null/empty message */
@@ -82,6 +83,47 @@ TuiMsg tui_msg_mouse(TuiMouseButton button, TuiMouseAction action, int col,
     msg.data.mouse.row = row;
     msg.data.mouse.mods = mods;
     return msg;
+}
+
+/* Create a paste-start message */
+TuiMsg tui_msg_paste_start(void)
+{
+    TuiMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = TUI_MSG_PASTE_START;
+    return msg;
+}
+
+/* Create a paste message (takes ownership of text) */
+TuiMsg tui_msg_paste(char *text, size_t len)
+{
+    TuiMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = TUI_MSG_PASTE;
+    msg.data.paste.text = text;
+    msg.data.paste.len = len;
+    return msg;
+}
+
+/* Create a paste-end message */
+TuiMsg tui_msg_paste_end(void)
+{
+    TuiMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = TUI_MSG_PASTE_END;
+    return msg;
+}
+
+/* Free any heap data owned by a message */
+void tui_msg_free(TuiMsg *msg)
+{
+    if (!msg)
+        return;
+    if (msg->type == TUI_MSG_PASTE) {
+        free(msg->data.paste.text);
+        msg->data.paste.text = NULL;
+        msg->data.paste.len = 0;
+    }
 }
 
 /* Check if message is a key press of specific type */
