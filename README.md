@@ -642,19 +642,28 @@ sudo dnf install bear clang-tools-extra shfmt   # optional
 
 ### Build Commands
 
-The project uses GNU Autotools. A convenience script wraps the full build:
+Pure GNU Autotools — no wrapper script. From a clean checkout:
 
 ```bash
-./build.sh                      # Full build with debug flags (-O0 -g3 -DDEBUG)
-./build.sh --no-debug            # Build with release flags (-O2)
-./build.sh --test                # Build and run tests (make check)
-./build.sh --install             # Build and install to ~/.local
-./build.sh --bear                # Build and generate compile_commands.json
-./build.sh --format              # Format sources (clang-format, shfmt, prettier)
-./build.sh --prefix=/some/path   # Custom install prefix
+./autogen.sh
+mkdir build && cd build
+../configure --prefix=$HOME/.local --enable-debug
+make -j$(nproc)
+make check          # run the test suite
+make install        # install library + headers + pkg-config file
 ```
 
-Output: `build/src/libbloom-boba.a` (static library). After `--install`, use
+Useful targets, all run from `build/`:
+
+- `make` — build `libbloom-boba.a`
+- `make check` — run the test suite (folds in tmux end-to-end tests when tmux is detected)
+- `make install` — install to `--prefix`
+- `make format` — clang-format on C sources, shfmt on shell, prettier on Markdown
+- `make bear` — produce `compile_commands.json` for clangd
+
+Release build: omit `--enable-debug` and pass `CFLAGS="-O2 -DNDEBUG"` to `configure`.
+
+Output: `build/src/libbloom-boba.a` (static library). After `make install`, use
 pkg-config to get the correct flags:
 
 ```bash
