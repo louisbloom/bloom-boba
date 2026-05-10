@@ -287,30 +287,30 @@ Features:
 - **Tab completion** - Emits `TUI_CMD_TAB_COMPLETE` with prefix and word position
 - **Kill ring** - Consecutive kills append to the same buffer (also reflected in the clipboard cmd as the kill ring grows)
 - **Undo** - Multiple undo levels with Ctrl+\_ or Ctrl+X Ctrl+U
-- **Absolute cursor positioning** - Flicker-free rendering with optional divider lines
+- **Absolute cursor positioning** - Flicker-free rendering at a parent-supplied row
 - **Prompt support** - Custom prompt strings with proper UTF-8 width calculation
-- **Visual dividers** - Optional Unicode box-drawing lines, styled per focus state
 - **Configurable word characters** - Whitelist-based word boundaries for completion and movement
 - **Echo mode** - Password masking (shows `*` per codepoint)
-- **Focus-aware styling** - Separate focused / blurred `TuiStyle` for prompt and dividers (Bubbles parity)
+- **Focus-aware styling** - Separate focused / blurred `TuiStyle` for the prompt (Bubbles parity)
 - **Continuation prompt** - Custom prompt for lines after the first in multi-line mode
+
+For decorative horizontal lines above or below the input, parents
+compose `tui_border_render_horizontal()` (see [Styles](#styles)) — the
+textinput renders only the input line(s).
 
 ```c
 TuiTextInput *input = tui_textinput_create(NULL);
 tui_textinput_set_prompt(input, "> ");
 tui_textinput_set_history_size(input, 100);
 tui_textinput_set_terminal_row(input, 23);     /* Absolute positioning */
-tui_textinput_set_show_dividers(input, 1);     /* Show decorative lines */
 tui_textinput_set_word_chars(input, "abc..."); /* Word boundary chars */
 tui_textinput_set_echo_mode(input, 1);         /* Password masking */
 
-/* Lipgloss-shaped focus-aware styling */
-TuiStyle pink   = tui_style_foreground(tui_style_new(), tui_color_hex("#ff06b7"));
-TuiStyle dim    = tui_style_faint(tui_style_new(), 1);
+/* Lipgloss-shaped focus-aware prompt styling */
+TuiStyle pink = tui_style_foreground(tui_style_new(), tui_color_hex("#ff06b7"));
+TuiStyle dim  = tui_style_faint(tui_style_new(), 1);
 tui_textinput_set_focused_prompt_style(input, pink);
 tui_textinput_set_blurred_prompt_style(input, dim);
-tui_textinput_set_focused_divider_style(input,
-    tui_style_foreground(tui_style_new(), tui_color_ansi(6)));   /* cyan */
 ```
 
 ### viewport
@@ -435,6 +435,24 @@ right one based on detected background). Borders ship as five prefab
 `TuiBorder` styles (normal, rounded, thick, double, hidden). Use
 `tui_style_get_width()` / `tui_style_get_height()` to measure rendered
 content without producing the bytes.
+
+For single horizontal-line dividers — the lipgloss
+`strings.Repeat(border.Top, n)` styled idiom, used when you want a
+decorative line above or below another component rather than a full
+4-sided box — use `tui_border_render_horizontal()`. It tiles the chosen
+edge across the requested width, applies a `TuiStyle` inline, and
+optionally embeds a title at left/center/right alignment (bloom-boba's
+small extension over lipgloss, which has no built-in title-in-border
+API):
+
+```c
+char *line = tui_border_render_horizontal(
+    &TUI_BORDER_NORMAL, /* top= */ 1, /* width= */ 80,
+    &my_dim_style,
+    /* title= */ "Session", TUI_BORDER_TITLE_CENTER,
+    /* pad_left= */ 1, /* pad_right= */ 1);
+/* position cursor with CSI <row>;1H, write line, free(line) */
+```
 
 The textinput component consumes `TuiStyle` values directly via
 `tui_textinput_set_focused_prompt_style()` and friends; the same shape is
